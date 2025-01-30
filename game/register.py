@@ -8,6 +8,12 @@ import os
 import random
 import string
 
+def generate_agent_symbol(prefix: str = "JOSHU") -> str:
+    """Generate a random agent symbol with the given prefix."""
+    # Generate 4 random uppercase letters
+    suffix = ''.join(random.choices(string.ascii_uppercase, k=4))
+    return f"{prefix}-{suffix}"
+
 DEFAULT_API_URL = "https://api.spacetraders.io/v2"
 
 class RegistrationManager:

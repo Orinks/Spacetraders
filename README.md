@@ -29,12 +29,13 @@ pip install poetry
 poetry install
 ```
 
-3. Register a new agent or use an existing token:
+3. Run the game:
 ```bash
-# Register a new agent
-poetry run python register_agent.py
+poetry run python main.py
+```
 
-# Or use an existing token by creating token.json:
+The script will automatically register a new agent if no token exists, or use your existing token from `token.json` if you have one:
+```json
 {
     "token": "your_token_here"
 }

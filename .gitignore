@@ -47,3 +47,4 @@ SpaceTraders.json
 *.code-workspace
 openapitools.json
 .aider*
+cline_docs/

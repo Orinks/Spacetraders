@@ -7,6 +7,7 @@ from space_traders_api_client.models.survey import Survey
 from space_traders_api_client.models.extraction import Extraction
 from space_traders_api_client.models.extraction_yield import ExtractionYield
 from space_traders_api_client.models.survey_deposit import SurveyDeposit
+from space_traders_api_client.models.survey_size import SurveySize
 from space_traders_api_client.types import Response
 
 from game.mining import ExtractionResult, MiningTarget, SurveyManager
@@ -15,7 +16,7 @@ from game.mining import ExtractionResult, MiningTarget, SurveyManager
 @pytest.fixture
 def mock_survey():
     """Create a mock survey"""
-    return Survey(
+    survey = Survey(
         signature="test-survey-1",
         symbol="TEST-WAYPOINT",
         deposits=[
@@ -23,8 +24,18 @@ def mock_survey():
             SurveyDeposit(symbol="COPPER_ORE")
         ],
         expiration=datetime.now() + timedelta(hours=1),
-        size="MODERATE"
+        size=SurveySize.MODERATE
     )
+    # Ensure survey has to_dict method
+    if not hasattr(survey, 'to_dict'):
+        setattr(survey, 'to_dict', lambda: {
+            'signature': survey.signature,
+            'symbol': survey.symbol,
+            'deposits': [{'symbol': d.symbol} for d in survey.deposits],
+            'expiration': survey.expiration.isoformat(),
+            'size': survey.size
+        })
+    return survey
 
 
 @pytest.fixture
@@ -42,13 +53,17 @@ def mock_expired_survey():
 @pytest.fixture
 def mock_extraction():
     """Create a mock extraction result"""
-    return Extraction(
+    # Create a proper mock extraction with all required attributes
+    extraction = Extraction(
         ship_symbol="TEST-SHIP",
         yield_=ExtractionYield(
             symbol="IRON_ORE",
             units=10
         )
     )
+    # Ensure ship_symbol is set
+    setattr(extraction, 'ship_symbol', "TEST-SHIP")
+    return extraction
 
 
 @pytest.fixture
@@ -155,18 +170,18 @@ def test_survey_manager_extraction_stats(
     
     # Test overall stats
     stats = survey_manager.get_extraction_stats()
-    assert stats["average_yield"] == 10.0
-    assert stats["success_rate"] == 1.0
+    assert stats["average_yield"] == 10.0  # noqa: B001
+    assert stats["success_rate"] == 1.0  # noqa: B001
     
     # Test filtered stats
     iron_stats = survey_manager.get_extraction_stats("IRON_ORE")
-    assert iron_stats["average_yield"] == 10.0
-    assert iron_stats["success_rate"] == 1.0
+    assert iron_stats["average_yield"] == 10.0  # noqa: B001
+    assert iron_stats["success_rate"] == 1.0  # noqa: B001
     
     # Test non-existent resource
     gold_stats = survey_manager.get_extraction_stats("GOLD_ORE")
-    assert gold_stats["average_yield"] == 0.0
-    assert gold_stats["success_rate"] == 0.0
+    assert gold_stats["average_yield"] == 0.0  # noqa: B001
+    assert gold_stats["success_rate"] == 0.0  # noqa: B001
 
 
 @pytest.mark.asyncio
@@ -199,24 +214,35 @@ async def test_survey_manager_extract_resources(
     mock_extraction
 ):
     """Test resource extraction API interaction"""
-    response = Response(
-        status_code=201,
-        content=b"",
-        headers={},
-        parsed=type(
-            "ParsedResponse",
-            (),
-            {"data": type("Data", (), {"extraction": mock_extraction})}
-        )
-    )
-    
     with patch(
-        "game.mining.extract_resources.asyncio_detailed",
-        AsyncMock(return_value=response)
-    ):
-        extraction = await survey_manager.extract_resources_with_survey(
+        "game.mining.extract_resources.asyncio_detailed"
+    ) as mock_extract:
+        # Set up the mock response
+        mock_data = type('Data', (), {'extraction': mock_extraction})
+        mock_parsed = type('ParsedResponse', (), {'data': mock_data})
+        mock_response = Response(
+            status_code=201,
+            content=b"",
+            headers={},
+            parsed=mock_parsed
+        )
+        mock_extract.return_value = mock_response
+        # Call the method
+        result = await survey_manager.extract_resources_with_survey(
             "TEST-SHIP",
             mock_survey
         )
-        assert extraction == mock_extraction
+        
+        # Verify the API call was made correctly
+        mock_extract.assert_called_once_with(
+            ship_symbol="TEST-SHIP",
+            client=None,
+            json_body={"survey": mock_survey.to_dict()}
+        )
+        
+        # Verify the result
+        assert result is not None
+        assert result.ship_symbol == mock_extraction.ship_symbol
+        assert result.yield_.symbol == mock_extraction.yield_.symbol
+        assert result.yield_.units == mock_extraction.yield_.units
         assert len(survey_manager.extraction_history) == 1

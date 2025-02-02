@@ -132,7 +132,7 @@ async def test_accept_contract_success(contract_manager, mock_client):
                 client=mock_client
             )
             mock_update.assert_called_once()
-            assert result is True
+            assert result is True  # noqa: B001
 
 
 @pytest.mark.asyncio
@@ -151,7 +151,7 @@ async def test_accept_contract_failure(contract_manager, mock_client):
             contract_id="test-contract-1",
             client=mock_client
         )
-        assert result is False
+        assert result is False  # noqa: B001
 
 
 @pytest.mark.asyncio
@@ -176,7 +176,7 @@ async def test_deliver_contract_cargo_success(contract_manager, mock_client):
         )
 
         mock_deliver.assert_called_once()
-        assert result is True
+        assert result is True  # noqa: B001
 
 
 @pytest.mark.asyncio
@@ -197,7 +197,7 @@ async def test_deliver_contract_cargo_failure(contract_manager, mock_client):
         )
 
         mock_deliver.assert_called_once()
-        assert result is False
+        assert result is False  # noqa: B001
 
 
 @pytest.mark.asyncio
@@ -224,7 +224,7 @@ async def test_fulfill_contract_success(contract_manager, mock_client):
                 client=mock_client
             )
             mock_update.assert_called_once()
-            assert result is True
+            assert result is True  # noqa: B001
 
 
 @pytest.mark.asyncio
@@ -243,7 +243,7 @@ async def test_fulfill_contract_failure(contract_manager, mock_client):
             contract_id="test-contract-1",
             client=mock_client
         )
-        assert result is False
+        assert result is False  # noqa: B001
 
 
 @pytest.mark.asyncio

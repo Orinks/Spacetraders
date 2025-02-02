@@ -39,6 +39,9 @@ def mock_market():
     """Create a mock market"""
     return Market(
         symbol="TEST_MARKET",
+        exports=[],
+        imports=[],
+        exchange="TEST_EXCHANGE",
         trade_goods=[
             MarketTradeGood(
                 symbol=TradeSymbol.IRON_ORE,
@@ -149,7 +152,7 @@ def test_trade_opportunity_calculations():
 
     score = opportunity.score()
     assert 0 <= score <= 100
-    assert score > 0  # Should be profitable
+    assert score > 0  # noqa: B001  # Should be profitable
 
 
 def test_market_analyzer_initialization():
@@ -178,6 +181,9 @@ def test_market_analyzer_get_trade_opportunities():
     # Create test markets with complementary trade goods
     market_a = Market(
         symbol="MARKET_A",
+        exports=[],
+        imports=[],
+        exchange="TEST_EXCHANGE",
         trade_goods=[
             MarketTradeGood(
                 symbol=TradeSymbol.IRON_ORE,
@@ -193,6 +199,9 @@ def test_market_analyzer_get_trade_opportunities():
 
     market_b = Market(
         symbol="MARKET_B",
+        exports=[],
+        imports=[],
+        exchange="TEST_EXCHANGE",
         trade_goods=[
             MarketTradeGood(
                 symbol=TradeSymbol.IRON_ORE,

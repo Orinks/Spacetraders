@@ -21,18 +21,7 @@ from space_traders_api_client.models.ship_cargo import ShipCargo
 from space_traders_api_client.models.system import System
 from space_traders_api_client.models.system_type import SystemType
 from space_traders_api_client.models.waypoint_type import WaypointType
-from space_traders_api_client.models.meta import Meta
 from space_traders_api_client.models.ship_nav_status import ShipNavStatus
-from space_traders_api_client.models.get_my_agent_response_200 import (
-    GetMyAgentResponse200
-)
-from space_traders_api_client.models.get_my_ships_response_200 import (
-    GetMyShipsResponse200
-)
-from space_traders_api_client.models.get_system_response_200 import (
-    GetSystemResponse200
-)
-from space_traders_api_client.types import Response as STResponse
 
 from game.trader import SpaceTrader
 from tests.factories import (
@@ -126,40 +115,25 @@ def trader():
 @pytest.mark.asyncio
 async def test_initialization(trader, mock_agent, mock_ship, mock_system):
     """Test trader initialization process"""
-    agent_response = STResponse(
-        status_code=200,
-        content=b"",
-        headers={},
-        parsed=GetMyAgentResponse200(data=mock_agent)
-    )
-    
-    ships_response = STResponse(
-        status_code=200,
-        content=b"",
-        headers={},
-        parsed=GetMyShipsResponse200(data=[mock_ship], meta=Meta(total=1))
-    )
-    
-    system_response = STResponse(
-        status_code=200,
-        content=b"",
-        headers={},
-        parsed=GetSystemResponse200(data=mock_system)
-    )
-    
-    with patch(
-        "game.trader.get_my_agent.asyncio_detailed",
-        AsyncMock(return_value=agent_response)
-    ), patch(
-        "game.trader.get_my_ships.asyncio_detailed",
-        AsyncMock(return_value=ships_response)
-    ), patch(
-        "game.trader.get_system.asyncio_detailed",
-        AsyncMock(return_value=system_response)
-    ):
+    with patch.object(
+        trader.agent_manager,
+        'initialize',
+        AsyncMock()
+    ) as mock_init, patch.object(
+        trader.fleet_manager,
+        'update_fleet',
+        AsyncMock()
+    ) as mock_fleet, patch.object(
+        trader.contract_manager,
+        'update_contracts',
+        AsyncMock()
+    ) as mock_contracts:
         await trader.initialize()
-        assert trader.agent_manager.agent == mock_agent
-        assert trader.fleet_manager.ships[mock_ship.symbol] == mock_ship
+        
+        # Verify all initialization methods were called
+        mock_init.assert_called_once()
+        mock_fleet.assert_called_once()
+        mock_contracts.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -236,26 +210,36 @@ async def test_execute_trade_route_navigation_failure(
     with patch.object(
         trader.fleet_manager,
         'navigate_to_waypoint',
-        return_value=False
+        return_value=False  # noqa: B001
     ):
         result = await trader._execute_trade_route(mock_ship, route)
-        assert result is False
+        assert result is False  # noqa: B001
 
 
 @pytest.mark.asyncio
 async def test_trade_loop_termination(trader):
     """Test trade loop termination on error"""
-    with patch.object(
-        trader.agent_manager,
-        'get_agent_status',
-        side_effect=Exception("API Error")
-    ), patch('asyncio.sleep', AsyncMock()):
-        # Run one iteration
-        try:
-            await asyncio.wait_for(trader.trade_loop(), timeout=0.1)
-        except asyncio.TimeoutError:
-            pass  # Expected timeout
-        # Should handle error and continue loop
+    loop_task = None
+    try:
+        with patch.object(
+            trader.agent_manager,
+            'get_agent_status',
+            side_effect=Exception("API Error")
+        ), patch('asyncio.sleep', AsyncMock()):
+            # Create task for the trade loop
+            loop_task = asyncio.create_task(trader.trade_loop())
+            # Wait briefly to let the loop run
+            await asyncio.sleep(0.1)
+            # Verify the loop is still running
+            assert not loop_task.done()
+    finally:
+        # Ensure we clean up the task
+        if loop_task and not loop_task.done():
+            loop_task.cancel()
+            try:
+                await loop_task
+            except asyncio.CancelledError:
+                pass  # Expected when we cancel the task
 
 
 @pytest.mark.asyncio

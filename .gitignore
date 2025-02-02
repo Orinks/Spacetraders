@@ -46,3 +46,4 @@ token.json
 SpaceTraders.json
 *.code-workspace
 openapitools.json
+.aider*

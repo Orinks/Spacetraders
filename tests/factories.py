@@ -1,6 +1,13 @@
 """Factories for creating test fixtures using factory_boy."""
+from typing import List
 import factory
-from factory import Sequence, LazyAttribute, SubFactory, List, LazyFunction
+from factory import (
+    Sequence,
+    LazyAttribute,
+    SubFactory,
+    List as FactoryList,
+    LazyFunction,
+)
 from datetime import datetime, timezone
 from space_traders_api_client.types import UNSET
 from space_traders_api_client.models import (
@@ -36,7 +43,24 @@ from space_traders_api_client.models import (
     Cooldown,
     ShipFuel,
     ShipCargo,
+    FactionTrait,
+    WaypointOrbital,
+    WaypointTrait,
+    ShipModule,
+    ShipMount,
+    ShipNavRouteWaypoint,
 )
+
+
+class WaypointRouteFactory(factory.Factory):
+    class Meta:
+        model = ShipNavRouteWaypoint
+
+    symbol = "TEST-WAYPOINT"
+    type_ = WaypointType.PLANET
+    system_symbol = "TEST-SYSTEM"
+    x = 0
+    y = 0
 
 
 class AgentFactory(factory.Factory):
@@ -59,7 +83,7 @@ class FactionFactory(factory.Factory):
     name = "Cosmic Corporation"
     description = "A test faction"
     headquarters = "test-system-XXX"
-    traits = []
+    traits: List[FactionTrait] = factory.List([])
     is_recruiting = True
 
 
@@ -95,8 +119,8 @@ class WaypointFactory(factory.Factory):
     system_symbol = "test-system-XXX"
     x = Sequence(lambda n: n * 10)
     y = Sequence(lambda n: n * 10)
-    orbitals = []
-    traits = []
+    orbitals: List[WaypointOrbital] = factory.List([])
+    traits: List[WaypointTrait] = factory.List([])
     is_under_construction = False
     chart = UNSET
 
@@ -110,10 +134,10 @@ class SystemFactory(factory.Factory):
     type_ = SystemType.NEUTRON_STAR  
     x = 0
     y = 0
-    waypoints = List([
+    waypoints = FactoryList([
         SubFactory(WaypointFactory) for _ in range(3)
     ])
-    factions = []
+    factions: List[str] = factory.List([])
 
 
 class ShipFrameFactory(factory.Factory):
@@ -164,8 +188,8 @@ class ShipNavFactory(factory.Factory):
     system_symbol = "TEST-SYSTEM"
     waypoint_symbol = "TEST-SYSTEM-WAYPOINT"
     route = LazyAttribute(lambda _: ShipNavRoute(
-        destination=WaypointFactory(),
-        origin=WaypointFactory(),
+        destination=WaypointRouteFactory(),
+        origin=WaypointRouteFactory(),
         departure_time=datetime.now(timezone.utc),
         arrival=datetime.now(timezone.utc)
     ))
@@ -204,8 +228,8 @@ class ShipFactory(factory.Factory):
     frame = SubFactory(ShipFrameFactory)
     reactor = SubFactory(ShipReactorFactory)
     engine = SubFactory(ShipEngineFactory)
-    modules = []
-    mounts = []
+    modules: List[ShipModule] = factory.List([])
+    mounts: List[ShipMount] = factory.List([])
     cargo = LazyAttribute(lambda _: ShipCargo(
         capacity=100,
         units=0,

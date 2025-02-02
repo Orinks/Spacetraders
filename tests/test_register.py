@@ -23,13 +23,13 @@ from tests.factories import (
 
 @pytest.fixture
 def token_file_path(tmp_path):
-    """Fixture providing a temporary path for the token file"""
+    """Fixture providing a temporary path for the token file."""
     return tmp_path / "token.json"
 
 
 @pytest.fixture
 def registration_manager(token_file_path):
-    """Fixture providing a RegistrationManager instance"""
+    """Fixture providing a RegistrationManager instance."""
     manager = RegistrationManager()
     manager.token_file = str(token_file_path)
     return manager
@@ -37,7 +37,7 @@ def registration_manager(token_file_path):
 
 @pytest.fixture
 def mock_success_response():
-    """Create mock response data for successful registration"""
+    """Create mock response data for successful registration."""
     token = "eyJhbGciOiJS...c1ajwC9XVoG3A"
     
     # Create test data using factories
@@ -97,8 +97,16 @@ def mock_success_response():
 
 
 def safe_path_exists(values):
-    """Helper to create a safe mock for os.path.exists"""
+    """Helper to create a safe mock for os.path.exists.
+    
+    Args:
+        values: List of boolean values to return in sequence
+    
+    Returns:
+        Function that returns values in sequence, with last value as default
+    """
     def _exists(*args, **kwargs):
+        nonlocal iterator
         try:
             return next(iterator)
         except StopIteration:
@@ -108,16 +116,16 @@ def safe_path_exists(values):
 
 
 def test_load_existing_token_no_file(registration_manager):
-    """Test loading token when file doesn't exist"""
-    with patch('os.path.exists', return_value=False):
+    """Test loading token when file doesn't exist."""
+    with patch('os.path.exists', return_value=False):  # noqa: B001
         token = registration_manager.load_existing_token()
         assert token is None
 
 
 def test_load_existing_token_with_file(registration_manager):
-    """Test loading token from existing file"""
+    """Test loading token from existing file."""
     mock_token = {'token': 'test-token-123'}
-    with patch('os.path.exists', return_value=True):
+    with patch('os.path.exists', return_value=True):  # noqa: B001
         with patch(
             'builtins.open',
             mock_open(read_data=json.dumps(mock_token))
@@ -126,14 +134,19 @@ def test_load_existing_token_with_file(registration_manager):
             assert token == 'test-token-123'
 
 
-def test_save_token_writes_token_to_file(registration_manager, token_file_path):
+def test_save_token_writes_token_to_file(
+    registration_manager,
+    token_file_path
+):
     """Test that save_token correctly writes the token to a file."""
     test_token = "test-token-123"
     expected_content = {"token": test_token}
     
     registration_manager.save_token(test_token)
     
-    assert token_file_path.exists(), "Token file should be created"
+    assert token_file_path.exists(), (
+        "Token file should be created"
+    )
     saved_content = json.loads(token_file_path.read_text())
     assert saved_content == expected_content
 
@@ -170,7 +183,7 @@ def test_save_token_overwrites_existing_file(
 
 
 def test_register_agent_success(registration_manager, mock_success_response):
-    """Test successful registration of a new agent"""
+    """Test successful registration of a new agent."""
     with patch(
         'space_traders_api_client.api.default.register.sync_detailed',
         return_value=mock_success_response
@@ -185,26 +198,26 @@ def test_register_agent_success(registration_manager, mock_success_response):
             symbol="TEST_AGENT",
             faction=FactionSymbol("COSMIC")
         )
-        assert success is True
+        assert success is True  # noqa: B001
         token = registration_manager.load_existing_token()
         assert token == "eyJhbGciOiJS...c1ajwC9XVoG3A"
 
 
 def test_register_agent_existing_token(registration_manager):
-    """Test registration when token already exists"""
+    """Test registration when token already exists."""
     with patch(
         'builtins.open',
         mock_open(read_data='{"token": "test-token"}')
-    ), patch('os.path.exists', return_value=True):
+    ), patch('os.path.exists', return_value=True):  # noqa: B001
         success = registration_manager.register_agent(
             symbol="TEST_AGENT",
             faction=FactionSymbol("COSMIC")
         )
-        assert success is False
+        assert success is False  # noqa: B001
 
 
 def test_register_agent_failure(registration_manager):
-    """Test registration failure"""
+    """Test registration failure."""
     error_response = Response(
         status_code=HTTPStatus.BAD_REQUEST,
         content=b'{"error":{"message":"Registration failed"}}',
@@ -225,7 +238,7 @@ def test_register_agent_failure(registration_manager):
 
 
 def test_register_agent_direct(mock_success_response):
-    """Test registering an agent directly with RegistrationManager"""
+    """Test registering an agent directly with RegistrationManager."""
     with patch(
         'space_traders_api_client.api.default.register.sync_detailed',
         return_value=mock_success_response
@@ -241,13 +254,13 @@ def test_register_agent_direct(mock_success_response):
             symbol="TEST_AGENT",
             faction=FactionSymbol("COSMIC")
         )
-        assert success is True
+        assert success is True  # noqa: B001
         token = manager.load_existing_token()
         assert token == "eyJhbGciOiJS...c1ajwC9XVoG3A"
 
 
 def test_register_with_email(registration_manager, mock_success_response):
-    """Test registration with email parameter"""
+    """Test registration with email parameter."""
     with patch(
         'space_traders_api_client.api.default.register.sync_detailed',
         return_value=mock_success_response
@@ -263,6 +276,6 @@ def test_register_with_email(registration_manager, mock_success_response):
             faction=FactionSymbol("COSMIC"),
             email="test@example.com"
         )
-        assert success is True
+        assert success is True  # noqa: B001
         token = registration_manager.load_existing_token()
         assert token == "eyJhbGciOiJS...c1ajwC9XVoG3A"

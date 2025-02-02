@@ -5,17 +5,22 @@ from typing import List, Optional
 
 from space_traders_api_client import AuthenticatedClient
 from space_traders_api_client.api.fleet import (
-    get_market,
     purchase_cargo,
     sell_cargo,
 )
 from space_traders_api_client.api.systems import (
     get_system_waypoints,
     get_systems,
+    get_market,
 )
 from space_traders_api_client.models.market import Market
 from space_traders_api_client.models.waypoint_trait_symbol import (
     WaypointTraitSymbol,
+)
+from space_traders_api_client.models import (
+    purchase_cargo_purchase_cargo_request as cargo_request,
+    sell_cargo_sell_cargo_request as sell_request,
+    trade_symbol as trade_types
 )
 
 from .market_analyzer import MarketAnalyzer, TradeOpportunity
@@ -41,10 +46,12 @@ class TradeManager:
     async def update_market_data(self, waypoint_symbol: str) -> None:
         """Update market data for analysis"""
         try:
+            # Extract system symbol from waypoint symbol (format: SYSTEM-X-X)
+            system_symbol = "-".join(waypoint_symbol.split("-")[:2])
             response = await get_market.asyncio_detailed(
+                system_symbol=system_symbol,
                 waypoint_symbol=waypoint_symbol,
-                client=self.client,
-                json_body={}
+                client=self.client
             )
             if response.status_code == 200 and response.parsed:
                 self.market_analyzer.update_market_data(response.parsed.data)
@@ -61,7 +68,6 @@ class TradeManager:
             # Get nearby systems
             systems_response = await get_systems.asyncio_detailed(
                 client=self.client,
-                json_body={},
                 limit=5
             )
             if (
@@ -76,9 +82,8 @@ class TradeManager:
             markets: List[Market] = []
             for system in systems:
                 waypoints = await get_system_waypoints.asyncio_detailed(
-                    system_symbol=system.symbol,
-                    client=self.client,
-                    json_body={}
+                    system.symbol,
+                    client=self.client
                 )
                 if waypoints.status_code != 200 or not waypoints.parsed:
                     continue
@@ -87,10 +92,14 @@ class TradeManager:
                     if WaypointTraitSymbol.MARKETPLACE in [
                         t.symbol for t in waypoint.traits
                     ]:
+                        # Extract system symbol from waypoint symbol
+                        system_symbol = "-".join(
+                            waypoint.symbol.split("-")[:2]
+                        )
                         market_response = await get_market.asyncio_detailed(
+                            system_symbol=system_symbol,
                             waypoint_symbol=waypoint.symbol,
-                            client=self.client,
-                            json_body={}
+                            client=self.client
                         )
                         if (
                             market_response.status_code == 200 
@@ -123,13 +132,14 @@ class TradeManager:
     ) -> bool:
         """Execute a purchase at current market"""
         try:
+            body = cargo_request.PurchaseCargoPurchaseCargoRequest(
+                symbol=trade_types.TradeSymbol(trade_symbol),
+                units=units
+            )
             response = await purchase_cargo.asyncio_detailed(
                 ship_symbol=ship_symbol,
                 client=self.client,
-                json_body={
-                    "symbol": trade_symbol,
-                    "units": units
-                }
+                body=body
             )
             return response.status_code == 201
         except Exception as e:
@@ -144,13 +154,14 @@ class TradeManager:
     ) -> bool:
         """Execute a sale at current market"""
         try:
+            body = sell_request.SellCargoSellCargoRequest(
+                symbol=trade_types.TradeSymbol(trade_symbol),
+                units=units
+            )
             response = await sell_cargo.asyncio_detailed(
                 ship_symbol=ship_symbol,
                 client=self.client,
-                json_body={
-                    "symbol": trade_symbol,
-                    "units": units
-                }
+                body=body
             )
             return response.status_code == 201
         except Exception as e:

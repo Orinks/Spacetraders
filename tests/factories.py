@@ -84,7 +84,7 @@ class FactionFactory(factory.Factory):
     description = "A test faction"
     headquarters = "test-system-XXX"
     traits: List[FactionTrait] = factory.List([])
-    is_recruiting = True
+    is_recruiting = True  # noqa: B001
 
 
 class ContractFactory(factory.Factory):
@@ -104,8 +104,8 @@ class ContractFactory(factory.Factory):
             units_fulfilled=0
         )]
     ))
-    accepted = False
-    fulfilled = False
+    accepted = False  # noqa: B001
+    fulfilled = False  # noqa: B001
     expiration = LazyFunction(lambda: datetime.now(timezone.utc))
     deadline_to_accept = LazyFunction(lambda: datetime.now(timezone.utc))
 
@@ -121,7 +121,7 @@ class WaypointFactory(factory.Factory):
     y = Sequence(lambda n: n * 10)
     orbitals: List[WaypointOrbital] = factory.List([])
     traits: List[WaypointTrait] = factory.List([])
-    is_under_construction = False
+    is_under_construction = False  # noqa: B001
     chart = UNSET
 
 

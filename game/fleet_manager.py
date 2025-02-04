@@ -14,6 +14,7 @@ from space_traders_api_client.api.fleet import (
 )
 from space_traders_api_client.models.ship import Ship
 from space_traders_api_client.models.ship_nav_status import ShipNavStatus
+from space_traders_api_client.models.navigate_ship_body import NavigateShipBody
 
 
 class FleetManager:
@@ -35,8 +36,7 @@ class FleetManager:
             Exception: If unable to retrieve ship data
         """
         response = await get_my_ships.asyncio_detailed(
-            client=self.client,
-            json_body={}
+            client=self.client
         )
         if response.status_code != 200 or not response.parsed:
             raise Exception(
@@ -63,12 +63,11 @@ class FleetManager:
         Returns:
             bool: True if navigation was successful
         """
+        nav_body = NavigateShipBody(waypoint_symbol=waypoint_symbol)
         response = await navigate_ship.asyncio_detailed(
             ship_symbol=ship_symbol,
             client=self.client,
-            json_body={
-                "waypointSymbol": waypoint_symbol
-            }
+            body=nav_body
         )
         return response.status_code == 200
         
@@ -76,8 +75,7 @@ class FleetManager:
         """Dock the ship at current waypoint"""
         response = await dock_ship.asyncio_detailed(
             ship_symbol=ship_symbol,
-            client=self.client,
-            json_body={}
+            client=self.client
         )
         return response.status_code == 200
         
@@ -85,8 +83,7 @@ class FleetManager:
         """Refuel the ship at current waypoint"""
         response = await refuel_ship.asyncio_detailed(
             ship_symbol=ship_symbol,
-            client=self.client,
-            json_body={}
+            client=self.client
         )
         return response.status_code == 200
         
@@ -94,8 +91,7 @@ class FleetManager:
         """Put the ship in orbit at current waypoint"""
         response = await orbit_ship.asyncio_detailed(
             ship_symbol=ship_symbol,
-            client=self.client,
-            json_body={}
+            client=self.client
         )
         return response.status_code == 200
         
@@ -106,8 +102,7 @@ class FleetManager:
         
         while attempts < max_attempts:
             ship_response = await get_my_ships.asyncio_detailed(
-                client=self.client,
-                json_body={}
+                client=self.client
             )
             if ship_response.status_code != 200 or not ship_response.parsed:
                 return None

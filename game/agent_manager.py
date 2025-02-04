@@ -63,8 +63,7 @@ class AgentManager:
             Exception: If unable to retrieve agent status
         """
         response = await get_my_agent.asyncio_detailed(
-            client=self.client,
-            json_body={}  # Required by type hints
+            client=self.client
         )
         if response.status_code != 200 or not response.parsed:
             raise Exception(

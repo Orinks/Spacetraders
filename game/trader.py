@@ -8,6 +8,8 @@ from typing import Optional
 from space_traders_api_client.models.ship import Ship
 from space_traders_api_client.models.ship_nav_status import ShipNavStatus
 from space_traders_api_client.models.system import System
+from space_traders_api_client.models.agent import Agent
+from space_traders_api_client.api.systems import get_systems
 
 from .agent_manager import AgentManager
 from .contract_manager import ContractManager
@@ -43,12 +45,48 @@ class SpaceTrader:
         
         # Initialize state
         self.current_system: Optional[System] = None
+        self.agent: Optional[Agent] = None
         
+    @property
+    def ships(self):
+        """Get the current ships dictionary"""
+        return self.fleet_manager.ships
+
     async def initialize(self):
         """Initialize the game state and verify connection"""
         await self.agent_manager.initialize()
+        self.agent = self.agent_manager.agent
         await self.fleet_manager.update_fleet()
         await self.contract_manager.update_contracts()
+            
+    async def scan_systems(self, limit: int = 5) -> list[System]:
+        """Scan nearby star systems
+        
+        Args:
+            limit: Maximum number of systems to return
+            
+        Returns:
+            List of System objects
+            
+        Raises:
+            Exception: If unable to retrieve system data
+        """
+        try:
+            response = await get_systems.asyncio_detailed(
+                client=self.agent_manager.client,
+                limit=limit
+            )
+            
+            if response.status_code != 200 or not response.parsed:
+                raise Exception(
+                    f'Failed to get systems (code: {response.status_code})'
+                )
+            
+            return response.parsed.data
+            
+        except Exception as e:
+            print(f"Error scanning systems: {e}")
+            return []
             
     async def manage_fleet(self):
         """Manage fleet operations

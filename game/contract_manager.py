@@ -27,7 +27,6 @@ from space_traders_api_client.api.systems import (
 
 from .mining import SurveyManager
 from .shipyard import ShipyardManager
-from .cooldown import CooldownManager
 
 
 class ContractManager:

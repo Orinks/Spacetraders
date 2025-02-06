@@ -42,7 +42,6 @@ class ContractManager:
         self.client = client
         self.contracts: Dict[str, Contract] = {}
         self.shipyard_manager = ShipyardManager(client)
-        self.cooldown_manager = CooldownManager(client)
         
     async def update_contracts(self) -> None:
         """Update the list of available contracts"""
@@ -440,9 +439,17 @@ class ContractManager:
                             print(f"Survey attempt {attempts}/{max_attempts}")
                             
                             # Wait for any cooldowns before surveying
-                            if not await self.cooldown_manager.wait_for_cooldown(mining_ship.symbol):
-                                print("Failed to wait for cooldown")
-                                return
+                            if not hasattr(mining_ship, 'cooldown') or (
+                                mining_ship.cooldown 
+                                and mining_ship.cooldown.remaining_seconds > 0
+                            ):
+                                print("Ship is on cooldown")
+                                await asyncio.sleep(
+                                    mining_ship.cooldown.remaining_seconds 
+                                    if hasattr(mining_ship, 'cooldown') 
+                                    and mining_ship.cooldown 
+                                    else 5
+                                )
                             
                             # Create a new survey
                             survey = await survey_manager.create_survey(mining_ship.symbol)
@@ -465,9 +472,17 @@ class ContractManager:
                             return
                             
                         # Wait for any cooldowns before extracting
-                        if not await self.cooldown_manager.wait_for_cooldown(mining_ship.symbol):
-                            print("Failed to wait for cooldown")
-                            return
+                        if not hasattr(mining_ship, 'cooldown') or (
+                            mining_ship.cooldown 
+                            and mining_ship.cooldown.remaining_seconds > 0
+                        ):
+                            print("Ship is on cooldown")
+                            await asyncio.sleep(
+                                mining_ship.cooldown.remaining_seconds 
+                                if hasattr(mining_ship, 'cooldown') 
+                                and mining_ship.cooldown 
+                                else 5
+                            )
                         
                         # Attempt extraction with the best survey
                         extraction = await survey_manager.extract_resources_with_survey(

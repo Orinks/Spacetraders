@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from space_traders_api_client.models.survey import Survey
 from space_traders_api_client.models.extraction import Extraction
 from space_traders_api_client.api.fleet import create_survey, extract_resources
+from space_traders_api_client.models.extract_resources_body import ExtractResourcesBody
 
 
 @dataclass
@@ -46,7 +47,9 @@ class SurveyManager:
         Args:
             survey: The survey to track
         """
-        if datetime.now() < survey.expiration:
+        # Convert expiration to a naive datetime for comparison
+        expiration = survey.expiration.replace(tzinfo=None)
+        if datetime.now() < expiration:
             self.active_surveys[survey.signature] = survey
             
     def get_active_surveys(self) -> List[Survey]:
@@ -134,7 +137,7 @@ class SurveyManager:
         now = datetime.now()
         expired = [
             sig for sig, survey in self.active_surveys.items()
-            if now >= survey.expiration
+            if now >= survey.expiration.replace(tzinfo=None)
         ]
         for sig in expired:
             del self.active_surveys[sig]

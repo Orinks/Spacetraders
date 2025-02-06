@@ -108,19 +108,25 @@ class SpaceTrader:
             for ship in self.fleet_manager.ships.values():
                 await self._process_ship(ship)
                 
+            # Check for deliverable contracts
+            for contract_id, contract in self.contract_manager.contracts.items():
+                if not contract.accepted:
+                    print(f"Found unaccepted contract {contract_id}")
+                    await self.contract_manager.accept_contract(contract_id)
+                elif contract.fulfilled:
+                    print(f"Contract {contract_id} is already fulfilled")
+                else:
+                    print(f"Processing contract {contract_id}")
+                    await self.contract_manager.process_contract(
+                        contract,
+                        self.fleet_manager.ships,
+                        self.survey_manager
+                    )
+                    
         except Exception as e:
-            print('Error managing fleet: {}'.format(e))
-            
-        # Check for deliverable contracts
-        for contract_id, contract in self.contract_manager.contracts.items():
-            if not contract.accepted:
-                print(f"Found unaccepted contract {contract_id}")
-                await self.contract_manager.accept_contract(contract_id)
-            elif contract.fulfilled:
-                print(f"Contract {contract_id} is already fulfilled")
-            else:
-                print(f"Processing contract {contract_id}")
-                await self.contract_manager.process_contract(contract)
+            import traceback
+            print('Error managing fleet:')
+            print(traceback.format_exc())
     
     async def _process_ship(self, ship: Ship):
         """Process individual ship actions based on its state
@@ -293,6 +299,8 @@ class SpaceTrader:
         """Main trading loop"""
         while True:
             try:
+                print("\n--- Starting new trading cycle ---\n")
+                
                 # Update agent status
                 await self.agent_manager.get_agent_status()
                 
@@ -300,9 +308,12 @@ class SpaceTrader:
                 await self.manage_fleet()
                 
                 # Add delay to avoid rate limiting
+                print("\nWaiting 5 seconds before next cycle...")
                 await asyncio.sleep(5)
                 
             except Exception as e:
-                print('Error in trade loop: {}'.format(str(e)))
-                # Longer delay on error
+                import traceback
+                print('Error in trade loop:')
+                print(traceback.format_exc())
+                print('\nWaiting 10 seconds after error...')
                 await asyncio.sleep(10)

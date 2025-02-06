@@ -1,6 +1,6 @@
 """Tests for contract manager"""
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 from datetime import datetime, timezone
 
 from space_traders_api_client.models.ship_nav_status import ShipNavStatus
@@ -71,7 +71,7 @@ def mock_survey_manager():
 @pytest.mark.asyncio
 async def test_update_contracts_success(contract_manager, mock_client, mock_contract):
     """Test successful contract update"""
-    with patch('game.contract_manager.get_contracts.asyncio_detailed') as mock_get:
+    with patch('game.contract_manager.get_contracts.asyncio_detailed', new_callable=AsyncMock) as mock_get:
         response = MagicMock()
         response.status_code = 200
         response.parsed.data = [mock_contract]
@@ -80,7 +80,9 @@ async def test_update_contracts_success(contract_manager, mock_client, mock_cont
 
         await contract_manager.update_contracts()
 
-        mock_get.assert_called_once_with(client=mock_client)
+        # Check called once since it was successful
+        assert mock_get.call_count == 1
+        mock_get.assert_called_with(client=mock_client)
         assert len(contract_manager.contracts) == 1
         assert contract_manager.contracts[mock_contract.id] == mock_contract
 
@@ -88,7 +90,7 @@ async def test_update_contracts_success(contract_manager, mock_client, mock_cont
 @pytest.mark.asyncio
 async def test_update_contracts_failure(contract_manager, mock_client):
     """Test contract update failure"""
-    with patch('game.contract_manager.get_contracts.asyncio_detailed') as mock_get:
+    with patch('game.contract_manager.get_contracts.asyncio_detailed', new_callable=AsyncMock) as mock_get:
         response = MagicMock()
         response.status_code = 404
         response.parsed = None
@@ -96,26 +98,30 @@ async def test_update_contracts_failure(contract_manager, mock_client):
 
         await contract_manager.update_contracts()
 
-        mock_get.assert_called_once_with(client=mock_client)
+        # Check that it attempted the retry mechanism (3 tries)
+        assert mock_get.call_count == 3
+        mock_get.assert_called_with(client=mock_client)
         assert len(contract_manager.contracts) == 0
 
 
 @pytest.mark.asyncio
 async def test_update_contracts_exception(contract_manager, mock_client):
     """Test contract update with exception"""
-    with patch('game.contract_manager.get_contracts.asyncio_detailed') as mock_get:
+    with patch('game.contract_manager.get_contracts.asyncio_detailed', new_callable=AsyncMock) as mock_get:
         mock_get.side_effect = Exception("API Error")
 
         await contract_manager.update_contracts()
 
-        mock_get.assert_called_once_with(client=mock_client)
+        # Check that it attempted the retry mechanism (3 tries)
+        assert mock_get.call_count == 3
+        mock_get.assert_called_with(client=mock_client)
         assert len(contract_manager.contracts) == 0
 
 
 @pytest.mark.asyncio
 async def test_accept_contract_success(contract_manager, mock_client):
     """Test successful contract acceptance"""
-    with patch('game.contract_manager.accept_contract.asyncio_detailed') as mock_accept:
+    with patch('game.contract_manager.accept_contract.asyncio_detailed', new_callable=AsyncMock) as mock_accept:
         response = MagicMock()
         response.status_code = 200
         response.parsed.data = {
@@ -124,10 +130,11 @@ async def test_accept_contract_success(contract_manager, mock_client):
         }
         mock_accept.return_value = response
 
-        with patch('game.contract_manager.ContractManager.update_contracts') as mock_update:
+        with patch('game.contract_manager.ContractManager.update_contracts', new_callable=AsyncMock) as mock_update:
             result = await contract_manager.accept_contract("test-contract-1")
 
-            mock_accept.assert_called_once_with(
+            assert mock_accept.call_count == 1
+            mock_accept.assert_called_with(
                 contract_id="test-contract-1",
                 client=mock_client
             )
@@ -138,14 +145,15 @@ async def test_accept_contract_success(contract_manager, mock_client):
 @pytest.mark.asyncio
 async def test_accept_contract_failure(contract_manager, mock_client):
     """Test contract acceptance failure"""
-    with patch('game.contract_manager.accept_contract.asyncio_detailed') as mock_accept:
+    with patch('game.contract_manager.accept_contract.asyncio_detailed', new_callable=AsyncMock) as mock_accept:
         response = MagicMock()
         response.status_code = 400
         mock_accept.return_value = response
 
         result = await contract_manager.accept_contract("test-contract-1")
 
-        mock_accept.assert_called_once_with(
+        assert mock_accept.call_count == 1
+        mock_accept.assert_called_with(
             contract_id="test-contract-1",
             client=mock_client
         )
@@ -155,12 +163,12 @@ async def test_accept_contract_failure(contract_manager, mock_client):
 @pytest.mark.asyncio
 async def test_deliver_contract_cargo_success(contract_manager, mock_client):
     """Test successful cargo delivery"""
-    with patch('game.contract_manager.dock_ship.asyncio_detailed') as mock_dock:
+    with patch('game.contract_manager.dock_ship.asyncio_detailed', new_callable=AsyncMock) as mock_dock:
         dock_response = MagicMock()
         dock_response.status_code = 200
         mock_dock.return_value = dock_response
 
-        with patch('game.contract_manager.deliver_contract.asyncio_detailed') as mock_deliver:
+        with patch('game.contract_manager.deliver_contract.asyncio_detailed', new_callable=AsyncMock) as mock_deliver:
             response = MagicMock()
             response.status_code = 200
             response.parsed.data = {
@@ -176,7 +184,8 @@ async def test_deliver_contract_cargo_success(contract_manager, mock_client):
                 10
             )
 
-            mock_dock.assert_called_once_with(
+            assert mock_dock.call_count == 1
+            mock_dock.assert_called_with(
                 ship_symbol="test-ship-1",
                 client=mock_client
             )
@@ -187,15 +196,17 @@ async def test_deliver_contract_cargo_success(contract_manager, mock_client):
 @pytest.mark.asyncio
 async def test_deliver_contract_cargo_failure(contract_manager, mock_client):
     """Test cargo delivery failure"""
-    with patch('game.contract_manager.dock_ship.asyncio_detailed') as mock_dock:
+    with patch('game.contract_manager.dock_ship.asyncio_detailed', new_callable=AsyncMock) as mock_dock:
         dock_response = MagicMock()
         dock_response.status_code = 200
         mock_dock.return_value = dock_response
 
-        with patch('game.contract_manager.deliver_contract.asyncio_detailed') as mock_deliver:
-            response = MagicMock()
-            response.status_code = 400
-            mock_deliver.return_value = response
+        with patch('game.contract_manager.deliver_contract.asyncio_detailed', new_callable=AsyncMock) as mock_deliver:
+            deliver_response = MagicMock()
+            deliver_response.status_code = 400
+            if hasattr(deliver_response, 'content'):
+                deliver_response.content.decode.return_value = "Error"
+            mock_deliver.return_value = deliver_response
 
             result = await contract_manager.deliver_contract_cargo(
                 "test-contract-1",
@@ -204,15 +215,20 @@ async def test_deliver_contract_cargo_failure(contract_manager, mock_client):
                 10
             )
 
-            mock_dock.assert_called_once()
-            mock_deliver.assert_called_once()
+            # Check that docking was attempted 3 times due to delivery failure
+            assert mock_dock.call_count == 3
+            mock_dock.assert_called_with(
+                ship_symbol="test-ship-1",
+                client=mock_client
+            )
+            assert mock_deliver.call_count == 3
             assert result is False
 
 
 @pytest.mark.asyncio
 async def test_fulfill_contract_success(contract_manager, mock_client):
     """Test successful contract fulfillment"""
-    with patch('game.contract_manager.fulfill_contract.asyncio_detailed') as mock_fulfill:
+    with patch('game.contract_manager.fulfill_contract.asyncio_detailed', new_callable=AsyncMock) as mock_fulfill:
         response = MagicMock()
         response.status_code = 200
         response.parsed.data = {
@@ -221,10 +237,11 @@ async def test_fulfill_contract_success(contract_manager, mock_client):
         }
         mock_fulfill.return_value = response
 
-        with patch('game.contract_manager.ContractManager.update_contracts') as mock_update:
+        with patch('game.contract_manager.ContractManager.update_contracts', new_callable=AsyncMock) as mock_update:
             result = await contract_manager.fulfill_contract("test-contract-1")
 
-            mock_fulfill.assert_called_once_with(
+            assert mock_fulfill.call_count == 1
+            mock_fulfill.assert_called_with(
                 contract_id="test-contract-1",
                 client=mock_client
             )
@@ -235,14 +252,15 @@ async def test_fulfill_contract_success(contract_manager, mock_client):
 @pytest.mark.asyncio
 async def test_fulfill_contract_failure(contract_manager, mock_client):
     """Test contract fulfillment failure"""
-    with patch('game.contract_manager.fulfill_contract.asyncio_detailed') as mock_fulfill:
+    with patch('game.contract_manager.fulfill_contract.asyncio_detailed', new_callable=AsyncMock) as mock_fulfill:
         response = MagicMock()
         response.status_code = 400
         mock_fulfill.return_value = response
 
         result = await contract_manager.fulfill_contract("test-contract-1")
 
-        mock_fulfill.assert_called_once_with(
+        assert mock_fulfill.call_count == 1
+        mock_fulfill.assert_called_with(
             contract_id="test-contract-1",
             client=mock_client
         )
@@ -258,19 +276,21 @@ async def test_process_contract_fulfilled(
     mock_survey_manager
 ):
     """Test processing a fulfilled contract"""
-    with patch('game.contract_manager.get_contract.asyncio') as mock_get:
-        mock_get.return_value = MagicMock(
-            data=MagicMock(fulfilled=True)
-        )
+    with patch('game.contract_manager.get_contract.asyncio_detailed', new_callable=AsyncMock) as mock_get:
+        get_response = MagicMock()
+        get_response.status_code = 200
+        get_response.parsed.data = MagicMock(fulfilled=True)
+        mock_get.return_value = get_response
 
-        with patch('game.contract_manager.ContractManager.fulfill_contract') as mock_fulfill:
+        with patch('game.contract_manager.ContractManager.fulfill_contract', new_callable=AsyncMock) as mock_fulfill:
             await contract_manager.process_contract(
                 mock_contract,
                 mock_ships,
                 mock_survey_manager
             )
 
-            mock_get.assert_called_once_with(
+            assert mock_get.call_count == 1
+            mock_get.assert_called_with(
                 contract_id=mock_contract.id,
                 client=mock_client
             )
@@ -286,22 +306,24 @@ async def test_process_contract_not_fulfilled(
     mock_survey_manager
 ):
     """Test processing a non-fulfilled contract"""
-    with patch('game.contract_manager.get_contract.asyncio') as mock_get:
-        mock_get.return_value = MagicMock(
-            data=MagicMock(
-                fulfilled=False,
-                terms=mock_contract.terms
-            )
+    with patch('game.contract_manager.get_contract.asyncio_detailed', new_callable=AsyncMock) as mock_get:
+        get_response = MagicMock()
+        get_response.status_code = 200
+        get_response.parsed.data = MagicMock(
+            fulfilled=False,
+            terms=mock_contract.terms
         )
+        mock_get.return_value = get_response
 
-        with patch('game.contract_manager.ContractManager.fulfill_contract') as mock_fulfill:
+        with patch('game.contract_manager.ContractManager.fulfill_contract', new_callable=AsyncMock) as mock_fulfill:
             await contract_manager.process_contract(
                 mock_contract,
                 mock_ships,
                 mock_survey_manager
             )
 
-            mock_get.assert_called_once_with(
+            assert mock_get.call_count == 1
+            mock_get.assert_called_with(
                 contract_id=mock_contract.id,
                 client=mock_client
             )
@@ -328,28 +350,26 @@ async def test_process_contract_purchase_mining_ship(
     )
     ships = {non_mining_ship.symbol: non_mining_ship}
 
-    # Create a shipyard waypoint
-    shipyard = WaypointFactory.build(
-        traits=[WaypointTraitFactory.build(symbol=WaypointTraitSymbol.SHIPYARD)]
-    )
-
-    with patch('game.contract_manager.get_contract.asyncio') as mock_get:
-        mock_get.return_value = MagicMock(
-            data=MagicMock(
-                fulfilled=False,
-                terms=mock_contract.terms
-            )
+    with patch('game.contract_manager.get_contract.asyncio_detailed', new_callable=AsyncMock) as mock_get:
+        get_response = MagicMock()
+        get_response.status_code = 200
+        get_response.parsed.data = MagicMock(
+            fulfilled=False,
+            terms=mock_contract.terms
         )
+        mock_get.return_value = get_response
 
         with patch.object(
             contract_manager.shipyard_manager,
-            'get_ship_mounts'
+            'get_ship_mounts',
+            new_callable=AsyncMock
         ) as mock_mounts:
             mock_mounts.return_value = []  # No mining mounts
 
             with patch.object(
                 contract_manager.shipyard_manager,
-                'purchase_mining_ship'
+                'purchase_mining_ship',
+                new_callable=AsyncMock
             ) as mock_purchase:
                 mock_response = MagicMock()
                 mock_response.parsed = MagicMock()
@@ -385,4 +405,3 @@ async def test_process_contract_invalid_format(
         mock_ships,
         mock_survey_manager
     )
-    # Should not raise any exceptions

@@ -1,29 +1,36 @@
 """
 Shipyard management for purchasing and configuring ships
 """
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 import json
+import asyncio
 
 from space_traders_api_client import AuthenticatedClient
 from space_traders_api_client.models.ship_mount import ShipMount
 from space_traders_api_client.models.ship_modification_transaction import ShipModificationTransaction
 from space_traders_api_client.models.purchase_ship_response_201 import PurchaseShipResponse201
 from space_traders_api_client.models.waypoint_trait_symbol import WaypointTraitSymbol
+from space_traders_api_client.models.ship_mount_symbol import ShipMountSymbol
+from space_traders_api_client.models.install_mount_install_mount_request import InstallMountInstallMountRequest
 from space_traders_api_client.api.fleet import (
     get_mounts,
     install_mount,
     purchase_ship,
+    get_my_ships,
+    navigate_ship,
 )
 from space_traders_api_client.api.systems import (
     get_shipyard,
     get_system_waypoints,
+    get_systems,
 )
 
 
 class ShipyardManager:
     """Manages shipyard operations and ship modifications"""
     
-    MINING_SHIP_TYPES = ["SHIP_MINING_DRONE"]
+    MINING_SHIP_TYPES = ["SHIP_MINING_DRONE", "SHIP_MINER"]
+    RATE_LIMIT_DELAY = 0.5  # Delay between API calls to avoid rate limiting
     
     def __init__(self, client: AuthenticatedClient):
         """Initialize ShipyardManager
@@ -59,13 +66,13 @@ class ShipyardManager:
     async def install_mount(
         self,
         ship_symbol: str,
-        mount_symbol: str
+        body: InstallMountInstallMountRequest
     ) -> Optional[ShipModificationTransaction]:
         """Install a mount on a ship
         
         Args:
             ship_symbol: Symbol of the ship to modify
-            mount_symbol: Symbol of the mount to install
+            body: Install mount request details
             
         Returns:
             Transaction details if successful, None otherwise
@@ -74,10 +81,10 @@ class ShipyardManager:
             response = await install_mount.asyncio_detailed(
                 ship_symbol=ship_symbol,
                 client=self.client,
-                json_body={"symbol": mount_symbol}
+                json_body=body
             )
             if response.status_code == 201 and response.parsed:
-                print(f"Successfully installed {mount_symbol} on {ship_symbol}")
+                print(f"Successfully installed mount on {ship_symbol}")
                 return response.parsed.data.transaction
             else:
                 print(f"Failed to install mount: {response.status_code}")
@@ -97,12 +104,25 @@ class ShipyardManager:
             Shipyard information if available, None otherwise
         """
         try:
+            await asyncio.sleep(self.RATE_LIMIT_DELAY)  # Rate limiting
+            system = waypoint.split('-')[0] + '-' + waypoint.split('-')[1]  # Extract system from waypoint
             response = await get_shipyard.asyncio_detailed(
+                system_symbol=system,
                 waypoint_symbol=waypoint,
                 client=self.client
             )
             if response.status_code == 200 and response.parsed:
                 return response.parsed.data.to_dict()
+            elif response.status_code == 429:  # Rate limited
+                retry_after = 1  # Default retry delay
+                try:
+                    error_data = json.loads(response.content.decode())
+                    retry_after = error_data.get('error', {}).get('data', {}).get('retryAfter', 1)
+                except:
+                    pass
+                print(f"Rate limited, waiting {retry_after} seconds...")
+                await asyncio.sleep(retry_after)
+                return await self.get_shipyard_info(waypoint)  # Retry
             else:
                 print(f"Failed to get shipyard info: {response.status_code}")
                 return None
@@ -119,8 +139,14 @@ class ShipyardManager:
         Returns:
             True if mining mount found, False otherwise
         """
+        from space_traders_api_client.models.ship_mount_symbol import ShipMountSymbol
+        mining_mounts = [
+            ShipMountSymbol.MOUNT_MINING_LASER_I,
+            ShipMountSymbol.MOUNT_MINING_LASER_II,
+            ShipMountSymbol.MOUNT_MINING_LASER_III,
+        ]
         for mount in mounts:
-            if mount.symbol in ["MOUNT_MINING_LASER", "MOUNT_MINING_LASER_II"]:
+            if mount.symbol in mining_mounts:
                 return True
         return False
 
@@ -135,31 +161,64 @@ class ShipyardManager:
         """
         shipyards = []
         try:
-            # Start with page 1
+            # Get all waypoints in system with pagination
             page = 1
             while True:
+                await asyncio.sleep(self.RATE_LIMIT_DELAY)  # Rate limiting
                 response = await get_system_waypoints.asyncio_detailed(
                     system_symbol=system_symbol,
                     client=self.client,
-                    page=page
+                    page=page,
+                    limit=20  # Max page size
                 )
+                
+                if response.status_code == 429:  # Rate limited
+                    retry_after = 1  # Default retry delay
+                    try:
+                        error_data = json.loads(response.content.decode())
+                        retry_after = error_data.get('error', {}).get('data', {}).get('retryAfter', 1)
+                    except:
+                        pass
+                    print(f"Rate limited, waiting {retry_after} seconds...")
+                    await asyncio.sleep(retry_after)
+                    continue  # Retry same page
                 
                 if response.status_code != 200 or not response.parsed:
                     print(f"Failed to get waypoints: {response.status_code}")
                     break
 
-                # Look for shipyard waypoints
+                # Look for shipyard waypoints and markets
+                found_any = False
                 for waypoint in response.parsed.data:
-                    if any(trait.symbol == WaypointTraitSymbol.SHIPYARD for trait in waypoint.traits):
-                        shipyards.append(waypoint.symbol)
-                
-                # Check if there are more pages
-                total_pages = response.parsed.meta.total / 20  # 20 is default page size
-                if page >= total_pages:
-                    break
+                    # Check both SHIPYARD and MARKETPLACE traits
+                    has_shipyard = any(trait.symbol == WaypointTraitSymbol.SHIPYARD for trait in waypoint.traits)
+                    has_marketplace = any(trait.symbol == WaypointTraitSymbol.MARKETPLACE for trait in waypoint.traits)
                     
-                page += 1
-
+                    # Print details about the waypoint and its traits
+                    print(f"Waypoint {waypoint.symbol} ({waypoint.type_}):")
+                    print(f"  Traits: {[trait.symbol for trait in waypoint.traits]}")
+                    
+                    if has_shipyard:
+                        print(f"  Found shipyard!")
+                        shipyards.append(waypoint.symbol)
+                        found_any = True
+                    elif has_marketplace:
+                        print(f"  Has marketplace, checking for shipyard...")
+                        # Query the waypoint specifically as it might have more details
+                        await asyncio.sleep(self.RATE_LIMIT_DELAY)
+                        shipyard_info = await self.get_shipyard_info(waypoint.symbol)
+                        if shipyard_info:
+                            print(f"  Confirmed shipyard at marketplace!")
+                            shipyards.append(waypoint.symbol)
+                            found_any = True
+                
+                # Check total pages from meta data
+                total_count = response.parsed.meta.total if response.parsed.meta else 0
+                if total_count > page * 20:  # More pages available
+                    page += 1
+                else:
+                    break  # No more pages
+            
             print(f"Found {len(shipyards)} shipyards in system {system_symbol}")
             return shipyards
 
@@ -167,7 +226,57 @@ class ShipyardManager:
             print(f"Error finding shipyards: {e}")
             return []
 
-    async def find_available_mining_ship(self, system_symbol: str) -> Optional[tuple[str, Dict]]:
+    async def find_nearby_systems(self, limit: int = 20) -> List[str]:
+        """Get list of nearby systems
+        
+        Args:
+            limit: Maximum number of systems to return
+            
+        Returns:
+            List of system symbols
+        """
+        try:
+            systems = []
+            page = 1
+            while len(systems) < limit:
+                await asyncio.sleep(self.RATE_LIMIT_DELAY)  # Rate limiting
+                response = await get_systems.asyncio_detailed(
+                    client=self.client,
+                    page=page,
+                    limit=20  # Max page size
+                )
+                
+                if response.status_code == 429:  # Rate limited
+                    retry_after = 1  # Default retry delay
+                    try:
+                        error_data = json.loads(response.content.decode())
+                        retry_after = error_data.get('error', {}).get('data', {}).get('retryAfter', 1)
+                    except:
+                        pass
+                    print(f"Rate limited, waiting {retry_after} seconds...")
+                    await asyncio.sleep(retry_after)
+                    continue  # Retry the same page
+                
+                if response.status_code == 200 and response.parsed:
+                    new_systems = [system.symbol for system in response.parsed.data]
+                    systems.extend(new_systems)
+                    
+                    # If page is not full, we've reached the end
+                    if len(new_systems) < 20:
+                        break
+                        
+                    page += 1
+                else:
+                    print(f"Failed to get nearby systems: {response.status_code}")
+                    break
+                    
+            return systems[:limit]
+                
+        except Exception as e:
+            print(f"Error getting nearby systems: {e}")
+            return []
+
+    async def find_available_mining_ship(self, system_symbol: str) -> Optional[Tuple[str, Dict]]:
         """Find an available mining ship to purchase in a system
 
         Args:
@@ -214,8 +323,42 @@ class ShipyardManager:
             print(f"Error finding available mining ships: {e}")
             return None
 
+    async def find_mining_ship_in_nearby_systems(self, current_system: str) -> Optional[Tuple[str, Dict]]:
+        """Search for mining ships in nearby systems
+        
+        Args:
+            current_system: Current system symbol
+            
+        Returns:
+            Tuple of (waypoint symbol, ship details) if found, None otherwise
+        """
+        try:
+            # First check current system
+            result = await self.find_available_mining_ship(current_system)
+            if result:
+                return result
+                
+            # If not found, check nearby systems
+            nearby_systems = await self.find_nearby_systems()
+            print(f"Checking {len(nearby_systems)} nearby systems for mining ships")
+            
+            for system in nearby_systems:
+                if system == current_system:
+                    continue
+                    
+                print(f"Checking system {system}")
+                result = await self.find_available_mining_ship(system)
+                if result:
+                    return result
+                    
+            return None
+            
+        except Exception as e:
+            print(f"Error searching nearby systems: {e}")
+            return None
+
     async def purchase_mining_ship(self, system_symbol: str) -> Optional[PurchaseShipResponse201]:
-        """Purchase a mining ship from any available shipyard in the system
+        """Purchase a mining ship from any available shipyard
         
         Args:
             system_symbol: The system to search for shipyards
@@ -225,7 +368,7 @@ class ShipyardManager:
         """
         try:
             # Find the best available mining ship
-            result = await self.find_available_mining_ship(system_symbol)
+            result = await self.find_mining_ship_in_nearby_systems(system_symbol)
             if not result:
                 print("Could not find any available mining ships")
                 return None
@@ -234,14 +377,104 @@ class ShipyardManager:
             print(f"Attempting to purchase {ship['type']} at {waypoint} for {ship['purchasePrice']} credits")
 
             # Purchase the ship
-            response = await purchase_ship.asyncio_detailed(
-                client=self.client,
-                json_body={"shipType": ship['type']},
+            await asyncio.sleep(self.RATE_LIMIT_DELAY)  # Rate limiting
+            from space_traders_api_client.models.purchase_ship_body import PurchaseShipBody
+            from space_traders_api_client.models.ship_type import ShipType
+            from space_traders_api_client.models.navigate_ship_body import NavigateShipBody
+            from space_traders_api_client.models.ship_mount_symbol import ShipMountSymbol
+            from space_traders_api_client.models.install_mount_install_mount_request import InstallMountInstallMountRequest
+
+            # Create the request body
+            body = PurchaseShipBody(
+                ship_type=ShipType(ship['type']),
                 waypoint_symbol=waypoint
             )
 
+            response = await purchase_ship.asyncio_detailed(
+                client=self.client,
+                body=body
+            )
+
+            if response.status_code == 429:  # Rate limited
+                retry_after = 1  # Default retry delay
+                try:
+                    error_data = json.loads(response.content.decode())
+                    retry_after = error_data.get('error', {}).get('data', {}).get('retryAfter', 1)
+                except:
+                    pass
+                print(f"Rate limited, waiting {retry_after} seconds...")
+                await asyncio.sleep(retry_after)
+                return await self.purchase_mining_ship(system_symbol)  # Retry
+
             if response.status_code == 201 and response.parsed:
-                print(f"Successfully purchased ship: {response.parsed.data.ship.symbol}")
+                ship_symbol = response.parsed.data.ship.symbol
+                print(f"Successfully purchased ship: {ship_symbol}")
+
+                if response.parsed.data.ship.nav:
+                    current_waypoint = response.parsed.data.ship.nav.waypoint_symbol
+                    print(f"Ship is at waypoint {current_waypoint}")
+
+                    # Try to find a shipyard to install the mount
+                    print("Searching for shipyard to install mining mount...")
+                    shipyards = await self.find_shipyards_in_system(system_symbol)
+                    if shipyards:
+                        for shipyard in shipyards:
+                            # First navigate to the shipyard if needed
+                            if current_waypoint != shipyard:
+                                print(f"Navigating to shipyard at {shipyard}")
+                                nav_body = NavigateShipBody(waypoint_symbol=shipyard)
+                                nav_response = await navigate_ship.asyncio_detailed(
+                                    ship_symbol=ship_symbol,
+                                    client=self.client,
+                                    body=nav_body
+                                )
+                                
+                                if nav_response.status_code != 200:
+                                    print(f"Failed to navigate: {nav_response.status_code}")
+                                    continue
+                                
+                                # Wait for arrival
+                                try:
+                                    while True:
+                                        await asyncio.sleep(5)  # Check every 5 seconds
+                                        ship_response = await get_my_ships.asyncio_detailed(
+                                            client=self.client
+                                        )
+                                        if ship_response.status_code == 200 and ship_response.parsed:
+                                            ship = next(
+                                                (s for s in ship_response.parsed.data
+                                                 if s.symbol == ship_symbol),
+                                                None
+                                            )
+                                            if ship and ship.nav.status != "IN_TRANSIT":
+                                                break
+                                except Exception as e:
+                                    print(f"Error waiting for arrival: {e}")
+                                    continue
+                            
+                            print(f"Attempting to install mining mount...")
+                            mount_body = InstallMountInstallMountRequest(
+                                symbol=ShipMountSymbol.MOUNT_MINING_LASER_I
+                            )
+                            transaction = await self.install_mount(
+                                ship_symbol=ship_symbol,
+                                body=mount_body
+                            )
+                            
+                            if transaction:
+                                print(
+                                    f"Successfully installed mining mount for "
+                                    f"{transaction.price_paid} credits"
+                                )
+                                break
+                            else:
+                                print("Failed to install mount at this shipyard, trying another...")
+
+                    else:
+                        print("No shipyards found to install mining mount")
+                else:
+                    print("No navigation data available for ship")
+                
                 return response
             else:
                 print(f"Failed to purchase ship: {response.status_code}")

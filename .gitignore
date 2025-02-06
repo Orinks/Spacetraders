@@ -48,3 +48,5 @@ SpaceTraders.json
 openapitools.json
 .aider*
 cline_docs/
+.goose/
+.goosehints

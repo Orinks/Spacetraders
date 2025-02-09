@@ -1,7 +1,7 @@
 """
 Contract management for SpaceTraders
 """
-from typing import Dict, Optional, Any, List, Tuple
+from typing import Dict, Optional
 import logging
 
 from space_traders_api_client import AuthenticatedClient
@@ -11,6 +11,10 @@ from space_traders_api_client.models.ship_nav_status import ShipNavStatus
 from space_traders_api_client.models.navigate_ship_body import NavigateShipBody
 from space_traders_api_client.models.refuel_ship_body import RefuelShipBody
 from space_traders_api_client.models.waypoint_trait_symbol import WaypointTraitSymbol
+from space_traders_api_client.models.waypoint import Waypoint
+from space_traders_api_client.models.contract_deliver_good import ContractDeliverGood
+from space_traders_api_client.models.ship_nav_flight_mode import ShipNavFlightMode
+
 from space_traders_api_client.api.contracts import (
     accept_contract,
     deliver_contract,
@@ -93,6 +97,197 @@ class ContractManager:
             return True
         else:
             logger.error(f"Failed to accept contract: {response.status_code}")
+            return False
+
+    async def navigate_to_waypoint(self, ship: Ship, waypoint: str) -> bool:
+        """Navigate a ship to a specific waypoint
+
+        Args:
+            ship: The ship to navigate
+            waypoint: Destination waypoint symbol
+
+        Returns:
+            bool: True if navigation was successful
+        """
+        # Check if already at destination
+        if ship.nav.waypoint_symbol == waypoint:
+            logger.info(f"Ship {ship.symbol} already at waypoint {waypoint}")
+            return True
+
+        try:
+            # First move to orbit if docked
+            if ship.nav.status == ShipNavStatus.DOCKED:
+                orbit_response = await self.rate_limiter.execute_with_retry(
+                    orbit_ship.asyncio_detailed,
+                    task_name="orbit_ship",
+                    ship_symbol=ship.symbol,
+                    client=self.client
+                )
+                if orbit_response.status_code != 200:
+                    logger.error(f"Failed to orbit ship: {orbit_response.status_code}")
+                    return False
+
+            # Navigate to destination
+            navigate_response = await self.rate_limiter.execute_with_retry(
+                navigate_ship.asyncio_detailed,
+                task_name="navigate_ship",
+                ship_symbol=ship.symbol,
+                client=self.client,
+                json_body=NavigateShipBody(
+                    waypoint_symbol=waypoint
+                )
+            )
+
+            if navigate_response.status_code == 200:
+                logger.info(f"Ship {ship.symbol} navigating to {waypoint}")
+                return True
+            else:
+                logger.error(f"Navigation failed: {navigate_response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error during navigation: {e}")
+            return False
+
+    async def ensure_ship_docked(self, ship: Ship) -> bool:
+        """Ensure a ship is docked at its current waypoint
+
+        Args:
+            ship: The ship to dock
+
+        Returns:
+            bool: True if ship is docked (or was successfully docked)
+        """
+        if ship.nav.status == ShipNavStatus.DOCKED:
+            return True
+
+        try:
+            response = await self.rate_limiter.execute_with_retry(
+                dock_ship.asyncio_detailed,
+                task_name="dock_ship",
+                ship_symbol=ship.symbol,
+                client=self.client
+            )
+
+            if response.status_code == 200:
+                logger.info(f"Ship {ship.symbol} docked successfully")
+                return True
+            else:
+                logger.error(f"Failed to dock ship: {response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error docking ship: {e}")
+            return False
+
+    async def refuel_ship(self, ship: Ship) -> bool:
+        """Refuel a ship at its current location
+
+        Args:
+            ship: The ship to refuel
+
+        Returns:
+            bool: True if refueling was successful
+        """
+        try:
+            response = await self.rate_limiter.execute_with_retry(
+                refuel_ship.asyncio_detailed,
+                task_name="refuel_ship",
+                ship_symbol=ship.symbol,
+                client=self.client
+            )
+
+            if response.status_code == 200:
+                logger.info(f"Ship {ship.symbol} refueled successfully")
+                return True
+            else:
+                logger.error(f"Failed to refuel ship: {response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error refueling ship: {e}")
+            return False
+
+    async def get_route_to_waypoint(self, system: str, waypoint: str) -> Optional[Waypoint]:
+        """Get route information to a specific waypoint
+
+        Args:
+            system: Source system symbol
+            waypoint: Target waypoint symbol
+
+        Returns:
+            Optional[Waypoint]: Waypoint information if found
+        """
+        try:
+            response = await self.rate_limiter.execute_with_retry(
+                get_system_waypoints.asyncio_detailed,
+                task_name="get_system_waypoints",
+                system_symbol=system,
+                client=self.client
+            )
+
+            if response.status_code == 200 and response.parsed:
+                # Find the target waypoint
+                for wp in response.parsed.data:
+                    if wp.symbol == waypoint:
+                        return wp
+                logger.error(f"Waypoint {waypoint} not found in system {system}")
+                return None
+            else:
+                logger.error(f"Failed to get system waypoints: {response.status_code}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error getting route: {e}")
+            return None
+
+    async def complete_delivery(
+        self,
+        contract: Contract,
+        ship: Ship,
+        delivery: ContractDeliverGood
+    ) -> bool:
+        """Complete a contract delivery
+
+        Args:
+            contract: The contract being fulfilled
+            ship: The ship making the delivery
+            delivery: The delivery requirements
+
+        Returns:
+            bool: True if delivery was successful
+        """
+        try:
+            # Navigate to destination
+            if not await self.navigate_to_waypoint(ship, delivery.destination_symbol):
+                logger.error("Failed to navigate to delivery destination")
+                return False
+
+            # Ensure ship is docked
+            if not await self.ensure_ship_docked(ship):
+                logger.error("Failed to dock ship for delivery")
+                return False
+
+            # Deliver the cargo
+            success = await self.deliver_contract_cargo(
+                contract_id=contract.id,
+                ship_symbol=ship.symbol,
+                trade_symbol=delivery.trade_symbol,
+                units=min(
+                    delivery.units_required - delivery.units_fulfilled,
+                    ship.cargo.units
+                )
+            )
+
+            if success:
+                logger.info(f"Successfully completed delivery for contract {contract.id}")
+                return True
+            else:
+                logger.error("Failed to deliver cargo")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error completing delivery: {e}")
             return False
 
     async def deliver_contract_cargo(

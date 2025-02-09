@@ -2,12 +2,11 @@
 """
 SpaceTraders Game Client Entry Point
 """
-import os
-import json
 import asyncio
 from game.trader import SpaceTrader
 from game.register import RegistrationManager, generate_agent_symbol
 from space_traders_api_client.models.faction_symbol import FactionSymbol
+
 
 async def main():
     """Main entry point for the SpaceTraders game client"""
@@ -71,6 +70,7 @@ async def main():
 
     except Exception as e:
         print(f"Error during game operations: {e}")
+
 
 if __name__ == "__main__":
     # Run the async main function

@@ -1,6 +1,6 @@
 """Tests for shipyard manager"""
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch, AsyncMock, ANY
 from datetime import datetime, timezone
 
 from space_traders_api_client.models.ship_mount import ShipMount
@@ -222,7 +222,7 @@ async def test_purchase_mining_ship_no_ships_available(shipyard_manager):
         result = await shipyard_manager.purchase_mining_ship("TEST-SYSTEM")
 
         assert result is None
-        mock_find.assert_called_once_with("TEST-SYSTEM")
+        mock_find.assert_called_once_with("TEST-SYSTEM", min_fuel_capacity=None)
 
 
 @pytest.mark.asyncio

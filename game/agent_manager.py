@@ -2,12 +2,17 @@
 Agent and initialization management for SpaceTraders
 """
 import os
+import logging
 from typing import Optional
 
 from dotenv import load_dotenv
 from space_traders_api_client import AuthenticatedClient
 from space_traders_api_client.api.agents import get_my_agent
 from space_traders_api_client.models.agent import Agent
+
+from .rate_limiter import RateLimiter
+
+logger = logging.getLogger(__name__)
 
 
 class AgentManager:
@@ -41,6 +46,7 @@ class AgentManager:
         
         # Initialize state
         self.agent: Optional[Agent] = None
+        self.rate_limiter = RateLimiter()
         
     async def initialize(self) -> None:
         """Initialize agent state and verify connection
@@ -62,16 +68,23 @@ class AgentManager:
         Raises:
             Exception: If unable to retrieve agent status
         """
-        response = await get_my_agent.asyncio_detailed(
-            client=self.client
-        )
-        if response.status_code != 200 or not response.parsed:
-            raise Exception(
-                'Failed to get agent status '
-                f'(code: {response.status_code})'
+        try:
+            response = await self.rate_limiter.execute_with_retry(
+                get_my_agent.asyncio_detailed,
+                task_name="get_agent_status",
+                client=self.client
             )
-        if not hasattr(response.parsed, 'data'):
-            raise Exception('Invalid response format')
             
-        self.agent = response.parsed.data
-        return self.agent
+            if response.status_code != 200 or not response.parsed:
+                raise Exception('Failed to get agent status')
+            if not hasattr(response.parsed, 'data'):
+                raise Exception('Failed to get agent status: Invalid response format')
+                
+            self.agent = response.parsed.data
+            return self.agent
+            
+        except Exception as e:
+            # Wrap any error with our standard message
+            if str(e).startswith('Failed to get agent status'):
+                raise
+            raise Exception(f'Failed to get agent status: {e}')

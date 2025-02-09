@@ -1,6 +1,7 @@
 """
 Trade route and market management for SpaceTraders
 """
+import logging
 from typing import List, Optional
 
 from space_traders_api_client import AuthenticatedClient
@@ -24,6 +25,9 @@ from space_traders_api_client.models import (
 )
 
 from .market_analyzer import MarketAnalyzer, TradeOpportunity
+from .rate_limiter import RateLimiter
+
+logger = logging.getLogger(__name__)
 
 
 class TradeManager:
@@ -42,13 +46,16 @@ class TradeManager:
         """
         self.client = client
         self.market_analyzer = market_analyzer
+        self.rate_limiter = RateLimiter()
         
     async def update_market_data(self, waypoint_symbol: str) -> None:
         """Update market data for analysis"""
         try:
             # Extract system symbol from waypoint symbol (format: SYSTEM-X-X)
             system_symbol = "-".join(waypoint_symbol.split("-")[:2])
-            response = await get_market.asyncio_detailed(
+            response = await self.rate_limiter.execute_with_retry(
+                get_market.asyncio_detailed,
+                task_name="update_market_data",
                 system_symbol=system_symbol,
                 waypoint_symbol=waypoint_symbol,
                 client=self.client
@@ -56,7 +63,7 @@ class TradeManager:
             if response.status_code == 200 and response.parsed:
                 self.market_analyzer.update_market_data(response.parsed.data)
         except Exception as e:
-            print(f"Error updating market data: {e}")
+            logger.error(f"Error updating market data: {e}")
 
     async def find_best_trade_route(
         self,
@@ -66,7 +73,9 @@ class TradeManager:
         """Find the most profitable trade route for a ship"""
         try:
             # Get nearby systems
-            systems_response = await get_systems.asyncio_detailed(
+            systems_response = await self.rate_limiter.execute_with_retry(
+                get_systems.asyncio_detailed,
+                task_name="get_systems",
                 client=self.client,
                 limit=5
             )
@@ -81,8 +90,10 @@ class TradeManager:
             # Get market data for each system
             markets: List[Market] = []
             for system in systems:
-                waypoints = await get_system_waypoints.asyncio_detailed(
-                    system.symbol,
+                waypoints = await self.rate_limiter.execute_with_retry(
+                    get_system_waypoints.asyncio_detailed,
+                    task_name="get_system_waypoints",
+                    system_symbol=system.symbol,
                     client=self.client
                 )
                 if waypoints.status_code != 200 or not waypoints.parsed:
@@ -96,7 +107,9 @@ class TradeManager:
                         system_symbol = "-".join(
                             waypoint.symbol.split("-")[:2]
                         )
-                        market_response = await get_market.asyncio_detailed(
+                        market_response = await self.rate_limiter.execute_with_retry(
+                            get_market.asyncio_detailed,
+                            task_name="get_market",
                             system_symbol=system_symbol,
                             waypoint_symbol=waypoint.symbol,
                             client=self.client
@@ -121,7 +134,7 @@ class TradeManager:
             return opportunities[0]
             
         except Exception as e:
-            print(f"Error finding trade route: {e}")
+            logger.error(f"Error finding trade route: {e}")
             return None
             
     async def execute_purchase(
@@ -136,14 +149,16 @@ class TradeManager:
                 symbol=trade_types.TradeSymbol(trade_symbol),
                 units=units
             )
-            response = await purchase_cargo.asyncio_detailed(
+            response = await self.rate_limiter.execute_with_retry(
+                purchase_cargo.asyncio_detailed,
+                task_name="execute_purchase",
                 ship_symbol=ship_symbol,
                 client=self.client,
                 body=body
             )
             return response.status_code == 201
         except Exception as e:
-            print(f"Error purchasing cargo: {e}")
+            logger.error(f"Error purchasing cargo: {e}")
             return False
             
     async def execute_sale(
@@ -158,12 +173,14 @@ class TradeManager:
                 symbol=trade_types.TradeSymbol(trade_symbol),
                 units=units
             )
-            response = await sell_cargo.asyncio_detailed(
+            response = await self.rate_limiter.execute_with_retry(
+                sell_cargo.asyncio_detailed,
+                task_name="execute_sale",
                 ship_symbol=ship_symbol,
                 client=self.client,
                 body=body
             )
             return response.status_code == 201
         except Exception as e:
-            print(f"Error selling cargo: {e}")
+            logger.error(f"Error selling cargo: {e}")
             return False

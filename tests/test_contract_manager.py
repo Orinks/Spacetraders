@@ -24,8 +24,13 @@ def mock_client():
 
 
 @pytest.fixture
-def contract_manager(mock_client):
-    return ContractManager(mock_client)
+async def contract_manager(mock_client):
+    manager = ContractManager(mock_client)
+    try:
+        yield manager
+    finally:
+        if hasattr(manager, 'rate_limiter'):
+            await manager.rate_limiter.cleanup()
 
 
 @pytest.fixture
@@ -80,7 +85,6 @@ async def test_update_contracts_success(contract_manager, mock_client, mock_cont
 
         await contract_manager.update_contracts()
 
-        # Check called once since it was successful
         assert mock_get.call_count == 1
         mock_get.assert_called_with(client=mock_client)
         assert len(contract_manager.contracts) == 1
@@ -98,10 +102,9 @@ async def test_update_contracts_failure(contract_manager, mock_client):
 
         await contract_manager.update_contracts()
 
-        # Check that it attempted the retry mechanism (3 tries)
-        assert mock_get.call_count == 3
+        assert mock_get.call_count == 1  # Only called once since 404 is not retried
         mock_get.assert_called_with(client=mock_client)
-        assert len(contract_manager.contracts) == 0
+        assert len(contract_manager.contracts) == 0  # No contracts on error
 
 
 @pytest.mark.asyncio
@@ -112,10 +115,9 @@ async def test_update_contracts_exception(contract_manager, mock_client):
 
         await contract_manager.update_contracts()
 
-        # Check that it attempted the retry mechanism (3 tries)
-        assert mock_get.call_count == 3
+        assert mock_get.call_count == 3  # Retries on general exceptions
         mock_get.assert_called_with(client=mock_client)
-        assert len(contract_manager.contracts) == 0
+        assert len(contract_manager.contracts) == 0  # No contracts on error
 
 
 @pytest.mark.asyncio
@@ -204,8 +206,7 @@ async def test_deliver_contract_cargo_failure(contract_manager, mock_client):
         with patch('game.contract_manager.deliver_contract.asyncio_detailed', new_callable=AsyncMock) as mock_deliver:
             deliver_response = MagicMock()
             deliver_response.status_code = 400
-            if hasattr(deliver_response, 'content'):
-                deliver_response.content.decode.return_value = "Error"
+            deliver_response.content = None  # Handle content check
             mock_deliver.return_value = deliver_response
 
             result = await contract_manager.deliver_contract_cargo(
@@ -215,13 +216,12 @@ async def test_deliver_contract_cargo_failure(contract_manager, mock_client):
                 10
             )
 
-            # Check that docking was attempted 3 times due to delivery failure
-            assert mock_dock.call_count == 3
+            assert mock_dock.call_count == 1
             mock_dock.assert_called_with(
                 ship_symbol="test-ship-1",
                 client=mock_client
             )
-            assert mock_deliver.call_count == 3
+            assert mock_deliver.call_count == 1
             assert result is False
 
 

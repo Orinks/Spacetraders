@@ -1,6 +1,7 @@
 """
 Mining operations and survey management system
 """
+import logging
 from typing import Dict, List, Optional
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -9,6 +10,10 @@ from space_traders_api_client.models.survey import Survey
 from space_traders_api_client.models.extraction import Extraction
 from space_traders_api_client.api.fleet import create_survey, extract_resources
 from space_traders_api_client.models.extract_resources_body import ExtractResourcesBody
+
+from .rate_limiter import RateLimiter
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -40,6 +45,7 @@ class SurveyManager:
         self.client = client
         self.active_surveys: Dict[str, Survey] = {}  # signature -> Survey
         self.extraction_history: List[ExtractionResult] = []
+        self.rate_limiter = RateLimiter()
         
     def add_survey(self, survey: Survey) -> None:
         """Add a new survey to tracking
@@ -51,6 +57,10 @@ class SurveyManager:
         expiration = survey.expiration.replace(tzinfo=None)
         if datetime.now() < expiration:
             self.active_surveys[survey.signature] = survey
+            logger.info(
+                f"Added survey {survey.signature} at {survey.symbol} "
+                f"(expires: {survey.expiration})"
+            )
             
     def get_active_surveys(self) -> List[Survey]:
         """Get all currently active surveys
@@ -113,7 +123,12 @@ class SurveyManager:
             return None
             
         # Return survey with most matching deposits
-        return max(matching_surveys, key=lambda x: x[0])[1]
+        best_survey = max(matching_surveys, key=lambda x: x[0])[1]
+        logger.info(
+            f"Found best survey for {resource_type} at {best_survey.symbol} "
+            f"(signature: {best_survey.signature})"
+        )
+        return best_survey
         
     def track_extraction_result(
         self,
@@ -131,6 +146,10 @@ class SurveyManager:
             extraction=extraction
         )
         self.extraction_history.append(result)
+        logger.info(
+            f"Recorded extraction result: {extraction.yield_.units} units of "
+            f"{extraction.yield_.symbol} using survey {survey.signature}"
+        )
         
     def cleanup_expired_surveys(self) -> None:
         """Remove expired surveys from tracking"""
@@ -140,6 +159,7 @@ class SurveyManager:
             if now >= survey.expiration.replace(tzinfo=None)
         ]
         for sig in expired:
+            logger.info(f"Removing expired survey {sig}")
             del self.active_surveys[sig]
             
     def get_extraction_stats(
@@ -184,10 +204,17 @@ class SurveyManager:
             if result.extraction.yield_.units > 0
         ])
         
-        return {
+        stats = {
             "average_yield": total_yield / len(relevant_extractions),
             "success_rate": success_count / len(relevant_extractions)
         }
+        
+        logger.info(
+            f"Extraction stats for {resource_type if resource_type else 'all resources'}: "
+            f"avg yield = {stats['average_yield']:.1f}, "
+            f"success rate = {stats['success_rate']*100:.1f}%"
+        )
+        return stats
 
     async def create_survey(self, ship_symbol: str) -> Optional[Survey]:
         """Create a new survey using the specified ship
@@ -198,24 +225,31 @@ class SurveyManager:
         Returns:
             The created survey if successful, None otherwise
         """
-        try:
-            response = await create_survey.asyncio_detailed(
-                ship_symbol=ship_symbol,
-                client=self.client
-            )
-            
-            if response.status_code == 201 and response.parsed:
-                # Add all surveys from the response
-                surveys = response.parsed.data.surveys
-                for survey in surveys:
-                    self.add_survey(survey)
-                # Return the first survey if available
-                if response.parsed.data.surveys:
-                    return response.parsed.data.surveys[0]
-                return None
+        response = await self.rate_limiter.execute_with_retry(
+            create_survey.asyncio_detailed,
+            task_name="create_survey",
+            ship_symbol=ship_symbol,
+            client=self.client
+        )
+        
+        if response.status_code == 201 and response.parsed:
+            # Add all surveys from the response
+            surveys = response.parsed.data.surveys
+            for survey in surveys:
+                self.add_survey(survey)
+            # Return the first survey if available
+            if response.parsed.data.surveys:
+                survey = response.parsed.data.surveys[0]
+                logger.info(
+                    f"Created new survey at {survey.symbol} "
+                    f"(signature: {survey.signature})"
+                )
+                return survey
             return None
-        except Exception as e:
-            print(f"Error creating survey: {e}")
+        else:
+            logger.error(f"Failed to create survey: {response.status_code}")
+            if response.content:
+                logger.error(f"Response: {response.content.decode()}")
             return None
 
     async def extract_resources_with_survey(
@@ -232,18 +266,24 @@ class SurveyManager:
         Returns:
             The extraction result if successful, None otherwise
         """
-        try:
-            response = await extract_resources.asyncio_detailed(
-                ship_symbol=ship_symbol,
-                client=self.client,
-                json_body={"survey": survey.to_dict()}
+        response = await self.rate_limiter.execute_with_retry(
+            extract_resources.asyncio_detailed,
+            task_name="extract_resources",
+            ship_symbol=ship_symbol,
+            client=self.client,
+            json_body={"survey": survey.to_dict()}
+        )
+        
+        if response.status_code == 201 and response.parsed:
+            extraction = response.parsed.data.extraction
+            self.track_extraction_result(survey, extraction)
+            logger.info(
+                f"Successfully extracted {extraction.yield_.units} units of "
+                f"{extraction.yield_.symbol} using survey {survey.signature}"
             )
-            
-            if response.status_code == 201 and response.parsed:
-                extraction = response.parsed.data.extraction
-                self.track_extraction_result(survey, extraction)
-                return extraction
-            return None
-        except Exception as e:
-            print(f"Error extracting resources: {e}")
+            return extraction
+        else:
+            logger.error(f"Failed to extract resources: {response.status_code}")
+            if response.content:
+                logger.error(f"Response: {response.content.decode()}")
             return None

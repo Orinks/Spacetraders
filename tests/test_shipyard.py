@@ -104,7 +104,7 @@ async def test_find_shipyards_multiple_pages(shipyard_manager, mock_waypoint):
         response1.status_code = 200
         response1.parsed.data = [mock_waypoint]
         response1.parsed.meta = MetaFactory.build(total=40)  # 2 pages (20 per page)
-        
+
         # Create a second waypoint for page 2
         mock_waypoint2 = WaypointFactory.build(
             symbol="TEST-WAYPOINT-2",

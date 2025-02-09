@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 
 class AgentManager:
     """Handles agent authentication and status"""
-    
+
     def __init__(self, token: Optional[str] = None):
         """Initialize the AgentManager
-        
+
         Args:
             token: Optional API token. If not provided, will read from env var.
-            
+
         Raises:
             ValueError: If no token is provided or found in environment.
         """
@@ -34,7 +34,7 @@ class AgentManager:
                 'No token provided. Set SPACETRADERS_TOKEN env var '
                 'or pass token.'
             )
-        
+
         # Initialize the client
         self.client = AuthenticatedClient(
             base_url='https://api.spacetraders.io/v2',
@@ -43,14 +43,14 @@ class AgentManager:
             verify_ssl=True,
             raise_on_unexpected_status=True
         )
-        
+
         # Initialize state
         self.agent: Optional[Agent] = None
         self.rate_limiter = RateLimiter()
-        
+
     async def initialize(self) -> None:
         """Initialize agent state and verify connection
-        
+
         Raises:
             Exception: If unable to connect or retrieve agent status
         """
@@ -58,13 +58,13 @@ class AgentManager:
             await self.get_agent_status()
         except Exception as e:
             raise Exception(f'Failed to initialize agent state: {e}')
-            
+
     async def get_agent_status(self) -> Agent:
         """Get current agent status
-        
+
         Returns:
             Agent: Current agent data
-            
+
         Raises:
             Exception: If unable to retrieve agent status
         """
@@ -74,15 +74,15 @@ class AgentManager:
                 task_name="get_agent_status",
                 client=self.client
             )
-            
+
             if response.status_code != 200 or not response.parsed:
                 raise Exception('Failed to get agent status')
             if not hasattr(response.parsed, 'data'):
                 raise Exception('Failed to get agent status: Invalid response format')
-                
+
             self.agent = response.parsed.data
             return self.agent
-            
+
         except Exception as e:
             # Wrap any error with our standard message
             if str(e).startswith('Failed to get agent status'):

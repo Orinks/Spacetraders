@@ -78,7 +78,7 @@ def test_extraction_result_creation(mock_survey, mock_extraction):
         survey_signature=mock_survey.signature,
         extraction=mock_extraction
     )
-    
+
     assert result.survey_signature == mock_survey.signature
     assert result.extraction == mock_extraction
     assert isinstance(result.timestamp, datetime)
@@ -92,7 +92,7 @@ def test_mining_target_creation(mock_survey):
         priority=1,
         survey=mock_survey
     )
-    
+
     assert target.waypoint == "TEST-WAYPOINT"
     assert target.resource_type == "IRON_ORE"
     assert target.priority == 1
@@ -114,7 +114,7 @@ def test_survey_manager_expired_survey(
     """Test handling of expired surveys"""
     survey_manager.add_survey(mock_survey)
     survey_manager.add_survey(mock_expired_survey)
-    
+
     active_surveys = survey_manager.get_active_surveys()
     assert len(active_surveys) == 1
     assert mock_expired_survey.signature not in survey_manager.active_surveys
@@ -123,13 +123,13 @@ def test_survey_manager_expired_survey(
 def test_survey_manager_get_surveys_for_waypoint(survey_manager, mock_survey):
     """Test filtering surveys by waypoint"""
     survey_manager.add_survey(mock_survey)
-    
+
     waypoint_surveys = survey_manager.get_surveys_for_waypoint(
         "TEST-WAYPOINT"
     )
     assert len(waypoint_surveys) == 1
     assert waypoint_surveys[0] == mock_survey
-    
+
     other_surveys = survey_manager.get_surveys_for_waypoint("OTHER-WAYPOINT")
     assert len(other_surveys) == 0
 
@@ -137,10 +137,10 @@ def test_survey_manager_get_surveys_for_waypoint(survey_manager, mock_survey):
 def test_survey_manager_get_best_survey(survey_manager, mock_survey):
     """Test finding best survey for resource"""
     survey_manager.add_survey(mock_survey)
-    
+
     best_survey = survey_manager.get_best_survey("IRON_ORE")
     assert best_survey == mock_survey
-    
+
     no_survey = survey_manager.get_best_survey("GOLD_ORE")
     assert no_survey is None
 
@@ -152,7 +152,7 @@ def test_survey_manager_track_extraction(
 ):
     """Test tracking extraction results"""
     survey_manager.track_extraction_result(mock_survey, mock_extraction)
-    
+
     assert len(survey_manager.extraction_history) == 1
     result = survey_manager.extraction_history[0]
     assert result.survey_signature == mock_survey.signature
@@ -167,17 +167,17 @@ def test_survey_manager_extraction_stats(
     """Test extraction statistics calculation"""
     # Add some extraction history
     survey_manager.track_extraction_result(mock_survey, mock_extraction)
-    
+
     # Test overall stats
     stats = survey_manager.get_extraction_stats()
     assert stats["average_yield"] == 10.0  # noqa: B001
     assert stats["success_rate"] == 1.0  # noqa: B001
-    
+
     # Test filtered stats
     iron_stats = survey_manager.get_extraction_stats("IRON_ORE")
     assert iron_stats["average_yield"] == 10.0  # noqa: B001
     assert iron_stats["success_rate"] == 1.0  # noqa: B001
-    
+
     # Test non-existent resource
     gold_stats = survey_manager.get_extraction_stats("GOLD_ORE")
     assert gold_stats["average_yield"] == 0.0  # noqa: B001
@@ -197,7 +197,7 @@ async def test_survey_manager_create_survey(survey_manager, mock_survey):
             {"data": type("Data", (), {"surveys": [mock_survey]})}
         )
     )
-    
+
     with patch(
         "game.mining.create_survey.asyncio_detailed",
         AsyncMock(return_value=response)
@@ -232,14 +232,14 @@ async def test_survey_manager_extract_resources(
             "TEST-SHIP",
             mock_survey
         )
-        
+
         # Verify the API call was made correctly
         mock_extract.assert_called_once_with(
             ship_symbol="TEST-SHIP",
             client=None,
             json_body={"survey": mock_survey.to_dict()}
         )
-        
+
         # Verify the result
         assert result is not None
         assert result.ship_symbol == mock_extraction.ship_symbol

@@ -32,14 +32,14 @@ logger = logging.getLogger(__name__)
 
 class TradeManager:
     """Manages market analysis and trade execution"""
-    
+
     def __init__(
         self,
         client: AuthenticatedClient,
         market_analyzer: MarketAnalyzer
     ):
         """Initialize TradeManager
-        
+
         Args:
             client: Authenticated API client
             market_analyzer: Market analysis component
@@ -47,7 +47,7 @@ class TradeManager:
         self.client = client
         self.market_analyzer = market_analyzer
         self.rate_limiter = RateLimiter()
-        
+
     async def update_market_data(self, waypoint_symbol: str) -> None:
         """Update market data for analysis"""
         try:
@@ -80,13 +80,13 @@ class TradeManager:
                 limit=5
             )
             if (
-                systems_response.status_code != 200 
+                systems_response.status_code != 200
                 or not systems_response.parsed
             ):
                 return None
-                
+
             systems = systems_response.parsed.data
-            
+
             # Get market data for each system
             markets: List[Market] = []
             for system in systems:
@@ -98,7 +98,7 @@ class TradeManager:
                 )
                 if waypoints.status_code != 200 or not waypoints.parsed:
                     continue
-                    
+
                 for waypoint in waypoints.parsed.data:
                     if WaypointTraitSymbol.MARKETPLACE in [
                         t.symbol for t in waypoint.traits
@@ -115,28 +115,28 @@ class TradeManager:
                             client=self.client
                         )
                         if (
-                            market_response.status_code == 200 
+                            market_response.status_code == 200
                             and market_response.parsed
                         ):
                             markets.append(market_response.parsed.data)
-                            
+
             # Find trade opportunities
             opportunities = self.market_analyzer.get_trade_opportunities(
                 markets=markets,
                 min_profit_margin=0.2,
                 max_distance=100
             )
-            
+
             if not opportunities:
                 return None
-                
+
             # Return best opportunity
             return opportunities[0]
-            
+
         except Exception as e:
             logger.error(f"Error finding trade route: {e}")
             return None
-            
+
     async def execute_purchase(
         self,
         ship_symbol: str,
@@ -160,7 +160,7 @@ class TradeManager:
         except Exception as e:
             logger.error(f"Error purchasing cargo: {e}")
             return False
-            
+
     async def execute_sale(
         self,
         ship_symbol: str,

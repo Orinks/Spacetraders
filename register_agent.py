@@ -25,7 +25,7 @@ def main():
             print("Use the token in token.json for future API calls")
         else:
             print("Agent already registered!")
-        
+
     except Exception as e:
         print(f"Registration failed: {str(e)}")
 

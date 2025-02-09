@@ -39,7 +39,7 @@ def registration_manager(token_file_path):
 def mock_success_response():
     """Create mock response data for successful registration."""
     token = "eyJhbGciOiJS...c1ajwC9XVoG3A"
-    
+
     # Create test data using factories
     agent = AgentFactory(symbol="TEST_AGENT")
     contract = ContractFactory()
@@ -61,7 +61,7 @@ def mock_success_response():
         if name == "type":
             return name.replace("type", "type_")
         return name
-    
+
     # Convert keys with special handling for type -> type_
     contract_kwargs = {}
     for key, value in contract_dict.items():
@@ -70,7 +70,7 @@ def mock_success_response():
             contract_kwargs["type_"] = value
         else:
             contract_kwargs[snake_key] = value
-    
+
     response_data = RegisterResponse201Data(
         token=token,
         agent=agent,
@@ -98,10 +98,10 @@ def mock_success_response():
 
 def safe_path_exists(values):
     """Helper to create a safe mock for os.path.exists.
-    
+
     Args:
         values: List of boolean values to return in sequence
-    
+
     Returns:
         Function that returns values in sequence, with last value as default
     """
@@ -141,9 +141,9 @@ def test_save_token_writes_token_to_file(
     """Test that save_token correctly writes the token to a file."""
     test_token = "test-token-123"
     expected_content = {"token": test_token}
-    
+
     registration_manager.save_token(test_token)
-    
+
     assert token_file_path.exists(), (
         "Token file should be created"
     )
@@ -159,9 +159,9 @@ def test_save_token_creates_directory_if_missing(
     nested_path = tmp_path / "nested" / "path" / "token.json"
     registration_manager.token_file = str(nested_path)
     test_token = "test-token-123"
-    
+
     registration_manager.save_token(test_token)
-    
+
     assert nested_path.exists()
     saved_content = json.loads(nested_path.read_text())
     assert saved_content["token"] == test_token
@@ -175,9 +175,9 @@ def test_save_token_overwrites_existing_file(
     initial_token = {"token": "old-token"}
     token_file_path.write_text(json.dumps(initial_token))
     new_token = "new-token-123"
-    
+
     registration_manager.save_token(new_token)
-    
+
     saved_content = json.loads(token_file_path.read_text())
     assert saved_content["token"] == new_token
 
@@ -224,7 +224,7 @@ def test_register_agent_failure(registration_manager):
         headers={},
         parsed=None
     )
-    
+
     with patch(
         'space_traders_api_client.api.default.register.sync_detailed',
         return_value=error_response

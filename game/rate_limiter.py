@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class RateLimiter:
     """Manages API rate limiting"""
-    
+
     def __init__(self):
         """Initialize rate limiter"""
         self.burst_limit = 30
@@ -44,15 +44,15 @@ class RateLimiter:
                     )
                 except asyncio.TimeoutError:
                     continue
-                
+
                 # Calculate time to wait
                 now = time.time()
                 time_since_last = now - self.last_request_time
                 wait_time = max(0, self.min_request_interval - time_since_last)
-                
+
                 if wait_time > 0:
                     await asyncio.sleep(wait_time)
-                
+
                 # Execute request
                 try:
                     result = await callback(*args, **kwargs)
@@ -64,54 +64,54 @@ class RateLimiter:
                 finally:
                     self._request_queue.task_done()
                     self.last_request_time = time.time()
-                
+
             except Exception as e:
                 logger.error(f"Error in queue processor: {e}")
                 await asyncio.sleep(1)  # Avoid tight loop on error
-        
+
         logger.info("Queue processor stopping")
 
     async def handle_response(self, response: Any) -> Optional[float]:
         """Handle API response and extract rate limit info
-        
+
         Args:
             response: API response object
-            
+
         Returns:
             Delay in seconds if rate limited, None otherwise
         """
         # Update rate limit info from headers if available
         # TODO: Add header parsing when API provides them
-        
+
         if response.status_code == 429:
             try:
                 error_data = json.loads(response.content.decode())
                 rate_data = error_data.get('error', {}).get('data', {})
-                
+
                 # Update our limits
                 self.burst_limit = rate_data.get('limitBurst', self.burst_limit)
                 self.rate_per_second = rate_data.get('limitPerSecond', self.rate_per_second)
                 self.remaining_requests = rate_data.get('remaining', 0)
-                
+
                 # Parse reset time
                 reset_str = rate_data.get('reset')
                 if reset_str:
                     self.reset_time = datetime.fromisoformat(reset_str.replace('Z', '+00:00'))
-                
+
                 # Get retry delay
                 retry_after = rate_data.get('retryAfter', 1)
-                
+
                 # Apply backoff multiplier
                 actual_delay = retry_after * self.backoff_multiplier
                 self.backoff_multiplier = min(self.backoff_multiplier * 1.5, 5.0)  # Cap at 5x
-                
+
                 logger.info(
                     f"Rate limited. Waiting {actual_delay:.2f}s "
                     f"(backoff: {self.backoff_multiplier:.1f}x)"
                 )
-                
+
                 return actual_delay
-                
+
             except Exception as e:
                 logger.error(f"Error parsing rate limit response: {e}")
                 return 1.0  # Default 1 second delay
@@ -122,24 +122,24 @@ class RateLimiter:
 
     async def queue_request(self, callback, *args, **kwargs):
         """Queue an API request with rate limiting
-        
+
         Args:
             callback: Async function to call
             *args: Positional arguments for callback
             **kwargs: Keyword arguments for callback
-            
+
         Returns:
             Result from callback
         """
         # Create future for result
         future = asyncio.Future()
-        
+
         # Start queue processor if needed
         await self.start_queue_processor()
-        
+
         # Add request to queue
         await self._request_queue.put((callback, args, kwargs, future))
-        
+
         # Wait for result
         return await future
 
@@ -152,37 +152,37 @@ class RateLimiter:
         **kwargs
     ):
         """Execute an API request with retries and rate limiting
-        
+
         Args:
             callback: Async function to call
             max_retries: Maximum number of retry attempts
             task_name: Name of task for logging
             *args: Positional arguments for callback
             **kwargs: Keyword arguments for callback
-            
+
         Returns:
             Result from callback
-        
+
         Raises:
             Exception: If all retries fail
         """
         attempt = 0
         last_error = None
         last_response = None
-        
+
         while attempt < max_retries:
             try:
                 # Attempt request
                 response = await self.queue_request(callback, *args, **kwargs)
                 last_response = response
-                
+
                 # Check for rate limiting
                 retry_after = await self.handle_response(response)
                 if retry_after:
                     await asyncio.sleep(retry_after)
                     attempt += 1
                     continue
-                
+
                 # Check response status
                 if response.status_code in [200, 201]:
                     return response
@@ -197,7 +197,7 @@ class RateLimiter:
                             logger.warning(f"Response: {error_content}")
                         except Exception:
                             logger.warning("Could not decode error content")
-                    
+
                     # Only retry on server errors and rate limiting
                     if (500 <= response.status_code < 600) or response.status_code == 429:
                         await asyncio.sleep(2 ** attempt)  # Exponential backoff
@@ -206,7 +206,7 @@ class RateLimiter:
                     else:
                         # For client errors (4xx except 429), don't retry
                         return response
-                    
+
             except Exception as e:
                 last_error = e
                 logger.error(
@@ -215,7 +215,7 @@ class RateLimiter:
                 # Only retry on general exceptions and specific retryable errors
                 await asyncio.sleep(2 ** attempt)  # Exponential backoff
                 attempt += 1
-        
+
         # If we get here, all retries failed
         if last_error:
             # Wrap the exception with our task context

@@ -79,10 +79,10 @@ class TestAgentManager:
         """Test successful agent status retrieval"""
         with patch('game.agent_manager.get_my_agent.asyncio_detailed') as mock_get:
             mock_get.return_value = mock_response
-            
+
             manager = AgentManager("test_token")
             agent = await manager.get_agent_status()
-            
+
             assert agent == mock_response.parsed.data
             assert manager.agent == mock_response.parsed.data
             assert agent.symbol == "TEST_AGENT"
@@ -95,10 +95,10 @@ class TestAgentManager:
         error_response = MagicMock(spec=Response)
         error_response.status_code = 404
         error_response.parsed = None
-        
+
         with patch('game.agent_manager.get_my_agent.asyncio_detailed') as mock_get:
             mock_get.return_value = error_response
-            
+
             manager = AgentManager("test_token")
             with pytest.raises(Exception, match="Failed to get agent status"):
                 await manager.get_agent_status()
@@ -108,10 +108,10 @@ class TestAgentManager:
         """Test successful initialization"""
         with patch('game.agent_manager.get_my_agent.asyncio_detailed') as mock_get:
             mock_get.return_value = mock_response
-            
+
             manager = AgentManager("test_token")
             await manager.initialize()
-            
+
             assert manager.agent == mock_response.parsed.data
 
     @pytest.mark.asyncio
@@ -119,7 +119,7 @@ class TestAgentManager:
         """Test initialization failure"""
         with patch('game.agent_manager.get_my_agent.asyncio_detailed') as mock_get:
             mock_get.side_effect = Exception("API Error")
-            
+
             manager = AgentManager("test_token")
             with pytest.raises(Exception, match="Failed to initialize agent state"):
                 await manager.initialize()

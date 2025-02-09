@@ -56,14 +56,14 @@ def mock_ship() -> Ship:
         x=0,
         y=0
     )
-    
+
     nav_route = ShipNavRoute(
         destination=waypoint,
         origin=origin_waypoint,
         departure_time=now,
         arrival=now
     )
-    
+
     return ShipFactory(
         symbol="TEST_SHIP_1",
         registration={
@@ -129,7 +129,7 @@ async def test_initialization(trader, mock_agent, mock_ship, mock_system):
         AsyncMock()
     ) as mock_contracts:
         await trader.initialize()
-        
+
         # Verify all initialization methods were called
         mock_init.assert_called_once()
         mock_fleet.assert_called_once()
@@ -194,7 +194,7 @@ async def test_execute_trade_route_navigation_failure(
 ):
     """Test trade route execution with navigation failure"""
     from game.market_analyzer import TradeOpportunity
-    
+
     route = TradeOpportunity(
         trade_symbol="IRON_ORE",
         source_market="SOURCE",
@@ -206,7 +206,7 @@ async def test_execute_trade_route_navigation_failure(
         target_demand="HIGH",
         distance=5
     )
-    
+
     with patch.object(
         trader.fleet_manager,
         'navigate_to_waypoint',

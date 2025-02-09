@@ -32,25 +32,25 @@ from space_traders_api_client.api.systems import (
 
 class ShipyardManager:
     """Manages shipyard operations and ship modifications"""
-    
+
     MINING_SHIP_TYPES = ["SHIP_MINING_DRONE", "SHIP_MINER"]
     TRANSPORT_SHIP_TYPES = ["SHIP_LIGHT_HAULER", "SHIP_HEAVY_FREIGHTER"]
     RATE_LIMIT_DELAY = 0.5  # Delay between API calls to avoid rate limiting
-    
+
     def __init__(self, client: AuthenticatedClient):
         """Initialize ShipyardManager
-        
+
         Args:
             client: Authenticated API client
         """
         self.client = client
-        
+
     async def get_ship_mounts(self, ship_symbol: str) -> List[ShipMount]:
         """Get current mounts on a ship
-        
+
         Args:
             ship_symbol: Symbol of the ship to check
-            
+
         Returns:
             List of currently installed mounts
         """
@@ -74,11 +74,11 @@ class ShipyardManager:
         body: InstallMountInstallMountRequest
     ) -> Optional[ShipModificationTransaction]:
         """Install a mount on a ship
-        
+
         Args:
             ship_symbol: Symbol of the ship to modify
             body: Install mount request details
-            
+
         Returns:
             Transaction details if successful, None otherwise
         """
@@ -98,13 +98,13 @@ class ShipyardManager:
         except Exception as e:
             print(f"Error installing mount: {e}")
             return None
-            
+
     async def get_shipyard_info(self, waypoint: str) -> Optional[Dict]:
         """Get shipyard information for a waypoint
-        
+
         Args:
             waypoint: The waypoint symbol to check
-            
+
         Returns:
             Shipyard information if available, None otherwise
         """
@@ -134,13 +134,13 @@ class ShipyardManager:
         except Exception as e:
             print(f"Error getting shipyard info: {e}")
             return None
-            
+
     def has_mining_mount(self, mounts: List[ShipMount]) -> bool:
         """Check if ship has a mining mount installed
-        
+
         Args:
             mounts: List of current ship mounts
-            
+
         Returns:
             True if mining mount found, False otherwise
         """
@@ -176,7 +176,7 @@ class ShipyardManager:
                     page=page,
                     limit=20  # Max page size
                 )
-                
+
                 if response.status_code == 429:  # Rate limited
                     retry_after = 1  # Default retry delay
                     try:
@@ -187,7 +187,7 @@ class ShipyardManager:
                     print(f"Rate limited, waiting {retry_after} seconds...")
                     await asyncio.sleep(retry_after)
                     continue  # Retry same page
-                
+
                 if response.status_code != 200 or not response.parsed:
                     print(f"Failed to get waypoints: {response.status_code}")
                     break
@@ -198,32 +198,32 @@ class ShipyardManager:
                     # Check both SHIPYARD and MARKETPLACE traits
                     has_shipyard = any(trait.symbol == WaypointTraitSymbol.SHIPYARD for trait in waypoint.traits)
                     has_marketplace = any(trait.symbol == WaypointTraitSymbol.MARKETPLACE for trait in waypoint.traits)
-                    
+
                     # Print details about the waypoint and its traits
                     print(f"Waypoint {waypoint.symbol} ({waypoint.type_}):")
                     print(f"  Traits: {[trait.symbol for trait in waypoint.traits]}")
-                    
+
                     if has_shipyard:
-                        print(f"  Found shipyard!")
+                        print("  Found shipyard!")
                         shipyards.append(waypoint.symbol)
                         found_any = True
                     elif has_marketplace:
-                        print(f"  Has marketplace, checking for shipyard...")
+                        print("  Has marketplace, checking for shipyard...")
                         # Query the waypoint specifically as it might have more details
                         await asyncio.sleep(self.RATE_LIMIT_DELAY)
                         shipyard_info = await self.get_shipyard_info(waypoint.symbol)
                         if shipyard_info:
-                            print(f"  Confirmed shipyard at marketplace!")
+                            print("  Confirmed shipyard at marketplace!")
                             shipyards.append(waypoint.symbol)
                             found_any = True
-                
+
                 # Check total pages from meta data
                 total_count = response.parsed.meta.total if response.parsed.meta else 0
                 if total_count > page * 20:  # More pages available
                     page += 1
                 else:
                     break  # No more pages
-            
+
             print(f"Found {len(shipyards)} shipyards in system {system_symbol}")
             return shipyards
 
@@ -233,10 +233,10 @@ class ShipyardManager:
 
     async def find_nearby_systems(self, limit: int = 20) -> List[str]:
         """Get list of nearby systems
-        
+
         Args:
             limit: Maximum number of systems to return
-            
+
         Returns:
             List of system symbols
         """
@@ -250,7 +250,7 @@ class ShipyardManager:
                     page=page,
                     limit=20  # Max page size
                 )
-                
+
                 if response.status_code == 429:  # Rate limited
                     retry_after = 1  # Default retry delay
                     try:
@@ -261,22 +261,22 @@ class ShipyardManager:
                     print(f"Rate limited, waiting {retry_after} seconds...")
                     await asyncio.sleep(retry_after)
                     continue  # Retry the same page
-                
+
                 if response.status_code == 200 and response.parsed:
                     new_systems = [system.symbol for system in response.parsed.data]
                     systems.extend(new_systems)
-                    
+
                     # If page is not full, we've reached the end
                     if len(new_systems) < 20:
                         break
-                        
+
                     page += 1
                 else:
                     print(f"Failed to get nearby systems: {response.status_code}")
                     break
-                    
+
             return systems[:limit]
-                
+
         except Exception as e:
             print(f"Error getting nearby systems: {e}")
             return []
@@ -345,11 +345,11 @@ class ShipyardManager:
         min_fuel_capacity: Optional[int] = None
     ) -> Optional[Tuple[str, Dict]]:
         """Search for mining ships in nearby systems
-        
+
         Args:
             current_system: Current system symbol
             min_fuel_capacity: Minimum fuel capacity required
-            
+
         Returns:
             Tuple of (waypoint symbol, ship details) if found, None otherwise
         """
@@ -367,15 +367,15 @@ class ShipyardManager:
                         f"{ship.get('frame', {}).get('fuelCapacity', 0)} "
                         f"(need {min_fuel_capacity})"
                     )
-                
+
             # If not found, check nearby systems
             nearby_systems = await self.find_nearby_systems()
             print(f"Checking {len(nearby_systems)} nearby systems for mining ships")
-            
+
             for system in nearby_systems:
                 if system == current_system:
                     continue
-                    
+
                 print(f"Checking system {system}")
                 result = await self.find_available_mining_ship(system)
                 if result:
@@ -389,9 +389,9 @@ class ShipyardManager:
                             f"{ship.get('frame', {}).get('fuelCapacity', 0)} "
                             f"(need {min_fuel_capacity})"
                         )
-                    
+
             return None
-            
+
         except Exception as e:
             print(f"Error searching nearby systems: {e}")
             return None
@@ -403,42 +403,42 @@ class ShipyardManager:
         min_fuel_capacity: Optional[int] = None
     ) -> Optional[PurchaseShipResponse201]:
         """Purchase a transport/command ship for hauling cargo
-        
+
         Args:
             system_symbol: System to search in
             min_cargo_capacity: Minimum cargo capacity required
             min_fuel_capacity: Minimum fuel capacity required
-            
+
         Returns:
             Purchase response if successful, None otherwise
         """
         try:
             # Find all shipyards in system
             shipyards = await self.find_shipyards_in_system(system_symbol)
-            
+
             best_ship = None
             best_price = float('inf')
             best_waypoint = None
-            
+
             for waypoint in shipyards:
                 shipyard_info = await self.get_shipyard_info(waypoint)
                 if not shipyard_info:
                     continue
-                    
+
                 # Look for transport ships
                 for ship in shipyard_info.get('ships', []):
                     if ship['type'] in self.TRANSPORT_SHIP_TYPES:
                         price = ship.get('purchasePrice', float('inf'))
-                        
+
                         # Check capacities
                         cargo_capacity = ship.get('frame', {}).get('cargoCapacity', 0)
                         fuel_capacity = ship.get('frame', {}).get('fuelCapacity', 0)
-                        
+
                         if min_cargo_capacity and cargo_capacity < min_cargo_capacity:
                             continue
                         if min_fuel_capacity and fuel_capacity < min_fuel_capacity:
                             continue
-                            
+
                         if price < best_price:
                             print(
                                 f"Found {ship['type']} at {waypoint}\n"
@@ -448,24 +448,24 @@ class ShipyardManager:
                             best_price = price
                             best_ship = ship
                             best_waypoint = waypoint
-            
+
             if best_ship and best_waypoint:
                 # Purchase the ship
                 print(f"Attempting to purchase {best_ship['type']} at {best_waypoint}")
-                
+
                 from space_traders_api_client.models.purchase_ship_body import PurchaseShipBody
                 from space_traders_api_client.models.ship_type import ShipType
-                
+
                 body = PurchaseShipBody(
                     ship_type=ShipType(best_ship['type']),
                     waypoint_symbol=best_waypoint
                 )
-                
+
                 response = await purchase_ship.asyncio_detailed(
                     client=self.client,
                     body=body
                 )
-                
+
                 if response.status_code == 201 and response.parsed:
                     print(f"Successfully purchased command ship: {response.parsed.data.ship.symbol}")
                     return response.parsed
@@ -477,7 +477,7 @@ class ShipyardManager:
             else:
                 print("No suitable command ships found")
                 return None
-                
+
         except Exception as e:
             print(f"Error purchasing command ship: {e}")
             return None
@@ -488,11 +488,11 @@ class ShipyardManager:
         min_fuel_capacity: Optional[int] = None
     ) -> Optional[PurchaseShipResponse201]:
         """Purchase a mining ship from any available shipyard
-        
+
         Args:
             system_symbol: The system to search for shipyards
             min_fuel_capacity: Minimum fuel capacity required
-            
+
         Returns:
             Purchase response if successful, None otherwise
         """
@@ -566,7 +566,7 @@ class ShipyardManager:
                             if dock_response.status_code != 200:
                                 print(f"Failed to dock for refueling: {dock_response.status_code}")
                                 continue
-                                
+
                             refuel_response = await refuel_ship.asyncio_detailed(
                                 ship_symbol=ship_symbol,
                                 client=self.client,
@@ -577,11 +577,11 @@ class ShipyardManager:
                                 continue
                             else:
                                 print("Ship refueled successfully")
-                                
+
                             # Then navigate to the shipyard if needed
                             if current_waypoint != shipyard:
                                 print(f"Navigating to shipyard at {shipyard}")
-                                        
+
                                 # First move ship to orbit if needed
                                 orbit_response = await orbit_ship.asyncio_detailed(
                                     ship_symbol=ship_symbol,
@@ -597,13 +597,13 @@ class ShipyardManager:
                                     client=self.client,
                                     body=nav_body
                                 )
-                                        
+
                                 if nav_response.status_code != 200:
                                     print(f"Failed to navigate: {nav_response.status_code}")
                                     if nav_response.content:
                                         print(f"Response: {nav_response.content.decode()}")
                                     continue
-                                
+
                                 # Wait for arrival
                                 try:
                                     while True:
@@ -622,7 +622,7 @@ class ShipyardManager:
                                 except Exception as e:
                                     print(f"Error waiting for arrival: {e}")
                                     continue
-                            
+
                             print(f"Attempting to install mining mount...")
                             mount_body = InstallMountInstallMountRequest(
                                 symbol=ShipMountSymbol.MOUNT_MINING_LASER_I
@@ -631,7 +631,7 @@ class ShipyardManager:
                                 ship_symbol=ship_symbol,
                                 body=mount_body
                             )
-                            
+
                             if transaction:
                                 print(
                                     f"Successfully installed mining mount for "
@@ -645,7 +645,7 @@ class ShipyardManager:
                         print("No shipyards found to install mining mount")
                 else:
                     print("No navigation data available for ship")
-                
+
                 return response
             else:
                 error_msg = "Failed to purchase ship"

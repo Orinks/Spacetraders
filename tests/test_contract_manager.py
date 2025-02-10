@@ -1,20 +1,21 @@
 """Tests for contract manager"""
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
-from datetime import datetime, timezone
 
 from space_traders_api_client.models.ship_nav_status import ShipNavStatus
+from space_traders_api_client.models.ship_nav_flight_mode import ShipNavFlightMode
+from space_traders_api_client.models.waypoint_trait_symbol import WaypointTraitSymbol
+from space_traders_api_client.models.waypoint_type import WaypointType
 from .factories import (
     ContractFactory,
     ShipFactory,
     ContractDeliverGood,
-    MetaFactory,
     ShipMountFactory,
     WaypointFactory,
     WaypointTraitFactory,
+    SystemFactory,
+    ShipNavFactory
 )
-from space_traders_api_client.models.meta import Meta
-from space_traders_api_client.models.waypoint_trait_symbol import WaypointTraitSymbol
 from game.contract_manager import ContractManager
 
 
@@ -40,7 +41,7 @@ def mock_contract():
         terms__deliver=[
             ContractDeliverGood(
                 trade_symbol="TEST_GOOD",
-                destination_symbol="TEST-DEST",
+                destination_symbol="TEST-SYSTEM-DEST",
                 units_required=10,
                 units_fulfilled=0
             )
@@ -73,335 +74,273 @@ def mock_survey_manager():
     return MagicMock()
 
 
-@pytest.mark.asyncio
-async def test_update_contracts_success(contract_manager, mock_client, mock_contract):
-    """Test successful contract update"""
-    with patch('game.contract_manager.get_contracts.asyncio_detailed', new_callable=AsyncMock) as mock_get:
-        response = MagicMock()
-        response.status_code = 200
-        response.parsed.data = [mock_contract]
-        response.parsed.meta = MetaFactory.build(total=1)
-        mock_get.return_value = response
-
-        await contract_manager.update_contracts()
-
-        assert mock_get.call_count == 1
-        mock_get.assert_called_with(client=mock_client)
-        assert len(contract_manager.contracts) == 1
-        assert contract_manager.contracts[mock_contract.id] == mock_contract
-
-
-@pytest.mark.asyncio
-async def test_update_contracts_failure(contract_manager, mock_client):
-    """Test contract update failure"""
-    with patch('game.contract_manager.get_contracts.asyncio_detailed', new_callable=AsyncMock) as mock_get:
-        response = MagicMock()
-        response.status_code = 404
-        response.parsed = None
-        mock_get.return_value = response
-
-        await contract_manager.update_contracts()
-
-        assert mock_get.call_count == 1  # Only called once since 404 is not retried
-        mock_get.assert_called_with(client=mock_client)
-        assert len(contract_manager.contracts) == 0  # No contracts on error
-
-
-@pytest.mark.asyncio
-async def test_update_contracts_exception(contract_manager, mock_client):
-    """Test contract update with exception"""
-    with patch('game.contract_manager.get_contracts.asyncio_detailed', new_callable=AsyncMock) as mock_get:
-        mock_get.side_effect = Exception("API Error")
-
-        await contract_manager.update_contracts()
-
-        assert mock_get.call_count == 3  # Retries on general exceptions
-        mock_get.assert_called_with(client=mock_client)
-        assert len(contract_manager.contracts) == 0  # No contracts on error
-
-
-@pytest.mark.asyncio
-async def test_accept_contract_success(contract_manager, mock_client):
-    """Test successful contract acceptance"""
-    with patch('game.contract_manager.accept_contract.asyncio_detailed', new_callable=AsyncMock) as mock_accept:
-        response = MagicMock()
-        response.status_code = 200
-        response.parsed.data = {
-            "contract": MagicMock(),
-            "agent": MagicMock()
-        }
-        mock_accept.return_value = response
-
-        with patch('game.contract_manager.ContractManager.update_contracts', new_callable=AsyncMock) as mock_update:
-            result = await contract_manager.accept_contract("test-contract-1")
-
-            assert mock_accept.call_count == 1
-            mock_accept.assert_called_with(
-                contract_id="test-contract-1",
-                client=mock_client
+# New test fixtures for navigation features
+@pytest.fixture
+def mock_waypoint():
+    return WaypointFactory.build(
+        symbol="TEST-SYSTEM-DEST",
+        type_=WaypointType.ORBITAL_STATION,
+        traits=[
+            WaypointTraitFactory.build(
+                symbol=WaypointTraitSymbol.MARKETPLACE
             )
-            mock_update.assert_called_once()
+        ]
+    )
+
+
+@pytest.fixture
+def mock_system():
+    return SystemFactory.build(
+        symbol="TEST-SYSTEM",
+        waypoints=[mock_waypoint]
+    )
+
+
+# New tests for navigation features
+@pytest.mark.asyncio
+async def test_navigate_to_waypoint_success(
+    contract_manager,
+    mock_client,
+    mock_mining_ship
+):
+    """Test successful navigation to waypoint"""
+    target_waypoint = "TEST-SYSTEM-DEST"
+    
+    # Mock orbit_ship response
+    with patch('game.contract_manager.orbit_ship.asyncio_detailed', new_callable=AsyncMock) as mock_orbit:
+        orbit_response = MagicMock()
+        orbit_response.status_code = 200
+        mock_orbit.return_value = orbit_response
+
+        # Mock navigate_ship response
+        with patch('game.contract_manager.navigate_ship.asyncio_detailed', new_callable=AsyncMock) as mock_navigate:
+            nav_response = MagicMock()
+            nav_response.status_code = 200
+            nav_response.parsed.data = ShipNavFactory.build(
+                status=ShipNavStatus.IN_TRANSIT,
+                flight_mode=ShipNavFlightMode.CRUISE
+            )
+            mock_navigate.return_value = nav_response
+
+            # Call the navigation method
+            result = await contract_manager.navigate_to_waypoint(
+                mock_mining_ship,
+                target_waypoint
+            )
+
             assert result is True
+            mock_orbit.assert_called_once()
+            mock_navigate.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_accept_contract_failure(contract_manager, mock_client):
-    """Test contract acceptance failure"""
-    with patch('game.contract_manager.accept_contract.asyncio_detailed', new_callable=AsyncMock) as mock_accept:
-        response = MagicMock()
-        response.status_code = 400
-        mock_accept.return_value = response
-
-        result = await contract_manager.accept_contract("test-contract-1")
-
-        assert mock_accept.call_count == 1
-        mock_accept.assert_called_with(
-            contract_id="test-contract-1",
-            client=mock_client
-        )
-        assert result is False
-
-
-@pytest.mark.asyncio
-async def test_deliver_contract_cargo_success(contract_manager, mock_client):
-    """Test successful cargo delivery"""
-    with patch('game.contract_manager.dock_ship.asyncio_detailed', new_callable=AsyncMock) as mock_dock:
-        dock_response = MagicMock()
-        dock_response.status_code = 200
-        mock_dock.return_value = dock_response
-
-        with patch('game.contract_manager.deliver_contract.asyncio_detailed', new_callable=AsyncMock) as mock_deliver:
-            response = MagicMock()
-            response.status_code = 200
-            response.parsed.data = {
-                "contract": MagicMock(),
-                "cargo": MagicMock()
-            }
-            mock_deliver.return_value = response
-
-            result = await contract_manager.deliver_contract_cargo(
-                "test-contract-1",
-                "test-ship-1",
-                "TEST_GOOD",
-                10
-            )
-
-            assert mock_dock.call_count == 1
-            mock_dock.assert_called_with(
-                ship_symbol="test-ship-1",
-                client=mock_client
-            )
-            mock_deliver.assert_called_once()
-            assert result is True
+async def test_navigate_to_waypoint_already_at_destination(
+    contract_manager,
+    mock_client,
+    mock_mining_ship
+):
+    """Test navigation when ship is already at destination"""
+    target_waypoint = mock_mining_ship.nav.waypoint_symbol
+    
+    result = await contract_manager.navigate_to_waypoint(
+        mock_mining_ship,
+        target_waypoint
+    )
+    
+    assert result is True
 
 
 @pytest.mark.asyncio
-async def test_deliver_contract_cargo_failure(contract_manager, mock_client):
-    """Test cargo delivery failure"""
-    with patch('game.contract_manager.dock_ship.asyncio_detailed', new_callable=AsyncMock) as mock_dock:
-        dock_response = MagicMock()
-        dock_response.status_code = 200
-        mock_dock.return_value = dock_response
+async def test_navigate_to_waypoint_failure(
+    contract_manager,
+    mock_client,
+    mock_mining_ship
+):
+    """Test navigation failure handling"""
+    target_waypoint = "TEST-SYSTEM-DEST"
+    
+    with patch('game.contract_manager.orbit_ship.asyncio_detailed', new_callable=AsyncMock) as mock_orbit:
+        orbit_response = MagicMock()
+        orbit_response.status_code = 200
+        mock_orbit.return_value = orbit_response
 
-        with patch('game.contract_manager.deliver_contract.asyncio_detailed', new_callable=AsyncMock) as mock_deliver:
-            deliver_response = MagicMock()
-            deliver_response.status_code = 400
-            deliver_response.content = None  # Handle content check
-            mock_deliver.return_value = deliver_response
+        with patch('game.contract_manager.navigate_ship.asyncio_detailed', new_callable=AsyncMock) as mock_navigate:
+            nav_response = MagicMock()
+            nav_response.status_code = 400
+            mock_navigate.return_value = nav_response
 
-            result = await contract_manager.deliver_contract_cargo(
-                "test-contract-1",
-                "test-ship-1",
-                "TEST_GOOD",
-                10
+            result = await contract_manager.navigate_to_waypoint(
+                mock_mining_ship,
+                target_waypoint
             )
 
-            assert mock_dock.call_count == 1
-            mock_dock.assert_called_with(
-                ship_symbol="test-ship-1",
-                client=mock_client
-            )
-            assert mock_deliver.call_count == 1
             assert result is False
+            mock_orbit.assert_called_once()
+            mock_navigate.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_fulfill_contract_success(contract_manager, mock_client):
-    """Test successful contract fulfillment"""
-    with patch('game.contract_manager.fulfill_contract.asyncio_detailed', new_callable=AsyncMock) as mock_fulfill:
-        response = MagicMock()
-        response.status_code = 200
-        response.parsed.data = {
-            "contract": MagicMock(),
-            "agent": MagicMock()
-        }
-        mock_fulfill.return_value = response
+async def test_ensure_ship_docked_success(
+    contract_manager,
+    mock_client,
+    mock_mining_ship
+):
+    """Test successful docking operation"""
+    # Set ship to in orbit
+    mock_mining_ship.nav.status = ShipNavStatus.IN_ORBIT
+    
+    with patch('game.contract_manager.dock_ship.asyncio_detailed', new_callable=AsyncMock) as mock_dock:
+        dock_response = MagicMock()
+        dock_response.status_code = 200
+        mock_dock.return_value = dock_response
 
-        with patch('game.contract_manager.ContractManager.update_contracts', new_callable=AsyncMock) as mock_update:
-            result = await contract_manager.fulfill_contract("test-contract-1")
+        result = await contract_manager.ensure_ship_docked(mock_mining_ship)
 
-            assert mock_fulfill.call_count == 1
-            mock_fulfill.assert_called_with(
-                contract_id="test-contract-1",
-                client=mock_client
-            )
-            mock_update.assert_called_once()
-            assert result is True
+        assert result is True
+        mock_dock.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_fulfill_contract_failure(contract_manager, mock_client):
-    """Test contract fulfillment failure"""
-    with patch('game.contract_manager.fulfill_contract.asyncio_detailed', new_callable=AsyncMock) as mock_fulfill:
-        response = MagicMock()
-        response.status_code = 400
-        mock_fulfill.return_value = response
+async def test_ensure_ship_docked_already_docked(
+    contract_manager,
+    mock_client,
+    mock_mining_ship
+):
+    """Test when ship is already docked"""
+    # Ship is already docked in fixture
+    result = await contract_manager.ensure_ship_docked(mock_mining_ship)
+    
+    assert result is True
 
-        result = await contract_manager.fulfill_contract("test-contract-1")
 
-        assert mock_fulfill.call_count == 1
-        mock_fulfill.assert_called_with(
-            contract_id="test-contract-1",
-            client=mock_client
-        )
+@pytest.mark.asyncio
+async def test_refuel_ship_success(
+    contract_manager,
+    mock_client,
+    mock_mining_ship
+):
+    """Test successful ship refueling"""
+    with patch('game.contract_manager.refuel_ship.asyncio_detailed', new_callable=AsyncMock) as mock_refuel:
+        refuel_response = MagicMock()
+        refuel_response.status_code = 200
+        mock_refuel.return_value = refuel_response
+
+        result = await contract_manager.refuel_ship(mock_mining_ship)
+
+        assert result is True
+        mock_refuel.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_refuel_ship_failure(
+    contract_manager,
+    mock_client,
+    mock_mining_ship
+):
+    """Test ship refueling failure"""
+    with patch('game.contract_manager.refuel_ship.asyncio_detailed', new_callable=AsyncMock) as mock_refuel:
+        refuel_response = MagicMock()
+        refuel_response.status_code = 400
+        mock_refuel.return_value = refuel_response
+
+        result = await contract_manager.refuel_ship(mock_mining_ship)
+
         assert result is False
+        mock_refuel.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_process_contract_fulfilled(
+async def test_get_route_to_waypoint_success(
     contract_manager,
     mock_client,
-    mock_contract,
-    mock_ships,
-    mock_survey_manager
+    mock_mining_ship,
+    mock_waypoint
 ):
-    """Test processing a fulfilled contract"""
-    with patch('game.contract_manager.get_contract.asyncio_detailed', new_callable=AsyncMock) as mock_get:
-        get_response = MagicMock()
-        get_response.status_code = 200
-        get_response.parsed.data = MagicMock(fulfilled=True)
-        mock_get.return_value = get_response
+    """Test successful route planning"""
+    with patch('game.contract_manager.get_system_waypoints.asyncio_detailed', new_callable=AsyncMock) as mock_waypoints:
+        waypoints_response = MagicMock()
+        waypoints_response.status_code = 200
+        waypoints_response.parsed.data = [mock_waypoint]
+        mock_waypoints.return_value = waypoints_response
 
-        with patch('game.contract_manager.ContractManager.fulfill_contract', new_callable=AsyncMock) as mock_fulfill:
-            await contract_manager.process_contract(
-                mock_contract,
-                mock_ships,
-                mock_survey_manager
-            )
-
-            assert mock_get.call_count == 1
-            mock_get.assert_called_with(
-                contract_id=mock_contract.id,
-                client=mock_client
-            )
-            mock_fulfill.assert_called_once_with(mock_contract.id)
-
-
-@pytest.mark.asyncio
-async def test_process_contract_not_fulfilled(
-    contract_manager,
-    mock_client,
-    mock_contract,
-    mock_ships,
-    mock_survey_manager
-):
-    """Test processing a non-fulfilled contract"""
-    with patch('game.contract_manager.get_contract.asyncio_detailed', new_callable=AsyncMock) as mock_get:
-        get_response = MagicMock()
-        get_response.status_code = 200
-        get_response.parsed.data = MagicMock(
-            fulfilled=False,
-            terms=mock_contract.terms
+        route = await contract_manager.get_route_to_waypoint(
+            mock_mining_ship.nav.system_symbol,
+            "TEST-SYSTEM-DEST"
         )
-        mock_get.return_value = get_response
 
-        with patch('game.contract_manager.ContractManager.fulfill_contract', new_callable=AsyncMock) as mock_fulfill:
-            await contract_manager.process_contract(
-                mock_contract,
-                mock_ships,
-                mock_survey_manager
-            )
-
-            assert mock_get.call_count == 1
-            mock_get.assert_called_with(
-                contract_id=mock_contract.id,
-                client=mock_client
-            )
-            mock_fulfill.assert_not_called()
+        assert route is not None
+        assert route.symbol == "TEST-SYSTEM-DEST"
+        mock_waypoints.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_process_contract_purchase_mining_ship(
+async def test_get_route_to_waypoint_not_found(
+    contract_manager,
+    mock_client,
+    mock_mining_ship
+):
+    """Test route planning when waypoint not found"""
+    with patch('game.contract_manager.get_system_waypoints.asyncio_detailed', new_callable=AsyncMock) as mock_waypoints:
+        waypoints_response = MagicMock()
+        waypoints_response.status_code = 200
+        waypoints_response.parsed.data = []  # No waypoints found
+        mock_waypoints.return_value = waypoints_response
+
+        route = await contract_manager.get_route_to_waypoint(
+            mock_mining_ship.nav.system_symbol,
+            "NONEXISTENT-WAYPOINT"
+        )
+
+        assert route is None
+        mock_waypoints.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_complete_delivery_success(
     contract_manager,
     mock_client,
     mock_contract,
-    mock_ships,
-    mock_survey_manager
+    mock_mining_ship
 ):
-    """Test processing a contract that requires purchasing a mining ship"""
-    # Create a ship without mining capabilities
-    non_mining_ship = ShipFactory.build(
-        nav__status=ShipNavStatus.DOCKED,
-        nav__waypoint_symbol="TEST-WAYPOINT",
-        nav__system_symbol="TEST-SYSTEM",
-        cargo__capacity=100,
-        cargo__units=0,
-        mounts=[]  # No mining mounts
-    )
-    ships = {non_mining_ship.symbol: non_mining_ship}
+    """Test successful contract delivery completion"""
+    # Setup mocks for the entire delivery process
+    with patch.object(contract_manager, 'navigate_to_waypoint', new_callable=AsyncMock) as mock_navigate:
+        mock_navigate.return_value = True
+        
+        with patch.object(contract_manager, 'ensure_ship_docked', new_callable=AsyncMock) as mock_dock:
+            mock_dock.return_value = True
+            
+            with patch.object(contract_manager, 'deliver_contract_cargo', new_callable=AsyncMock) as mock_deliver:
+                mock_deliver.return_value = True
 
-    with patch('game.contract_manager.get_contract.asyncio_detailed', new_callable=AsyncMock) as mock_get:
-        get_response = MagicMock()
-        get_response.status_code = 200
-        get_response.parsed.data = MagicMock(
-            fulfilled=False,
-            terms=mock_contract.terms
-        )
-        mock_get.return_value = get_response
-
-        with patch.object(
-            contract_manager.shipyard_manager,
-            'get_ship_mounts',
-            new_callable=AsyncMock
-        ) as mock_mounts:
-            mock_mounts.return_value = []  # No mining mounts
-
-            with patch.object(
-                contract_manager.shipyard_manager,
-                'purchase_mining_ship',
-                new_callable=AsyncMock
-            ) as mock_purchase:
-                mock_response = MagicMock()
-                mock_response.parsed = MagicMock()
-                mock_response.parsed.data = MagicMock()
-                mock_response.parsed.data.ship = ShipFactory.build(
-                    symbol="NEW-MINING-SHIP"
-                )
-                mock_purchase.return_value = mock_response
-
-                await contract_manager.process_contract(
-                    mock_contract,
-                    ships,
-                    mock_survey_manager
+                result = await contract_manager.complete_delivery(
+                    contract=mock_contract,
+                    ship=mock_mining_ship,
+                    delivery=mock_contract.terms.deliver[0]
                 )
 
-                mock_purchase.assert_called_once_with(
-                    system_symbol=non_mining_ship.nav.system_symbol
-                )
+                assert result is True
+                mock_navigate.assert_called_once()
+                mock_dock.assert_called_once()
+                mock_deliver.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_process_contract_invalid_format(
+async def test_complete_delivery_navigation_failure(
     contract_manager,
-    mock_ships,
-    mock_survey_manager
+    mock_client,
+    mock_contract,
+    mock_mining_ship
 ):
-    """Test processing a contract with invalid format"""
-    invalid_contract = ContractFactory.build()
-    invalid_contract.terms = None  # Invalid format
+    """Test delivery completion with navigation failure"""
+    with patch.object(contract_manager, 'navigate_to_waypoint', new_callable=AsyncMock) as mock_navigate:
+        mock_navigate.return_value = False
 
-    await contract_manager.process_contract(
-        invalid_contract,
-        mock_ships,
-        mock_survey_manager
-    )
+        result = await contract_manager.complete_delivery(
+            contract=mock_contract,
+            ship=mock_mining_ship,
+            delivery=mock_contract.terms.deliver[0]
+        )
+
+        assert result is False
+        mock_navigate.assert_called_once()

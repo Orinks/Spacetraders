@@ -1,0 +1,12 @@
+[flake8]
+max-line-length = 127
+max-complexity = 10
+show-source = True
+statistics = True
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    .venv,
+    space-traders-api-client/

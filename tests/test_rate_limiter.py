@@ -70,7 +70,7 @@ class TestRateLimiter:
     async def test_handle_response_rate_limit(self, rate_limiter, mock_429_response):
         """Test handling rate limit response"""
         retry_after = await rate_limiter.handle_response(mock_429_response)
-        
+
         assert retry_after == 1.5  # Initial retry with no backoff
         assert rate_limiter.burst_limit == 10  # Updated from response
         assert rate_limiter.rate_per_second == 2
@@ -81,17 +81,17 @@ class TestRateLimiter:
     async def test_backoff_multiplier_increase(self, rate_limiter, mock_429_response):
         """Test backoff multiplier increases with consecutive rate limits"""
         initial_multiplier = rate_limiter.backoff_multiplier
-        
+
         # First rate limit
         await rate_limiter.handle_response(mock_429_response)
         first_multiplier = rate_limiter.backoff_multiplier
         assert first_multiplier > initial_multiplier
-        
+
         # Second rate limit
         await rate_limiter.handle_response(mock_429_response)
         second_multiplier = rate_limiter.backoff_multiplier
         assert second_multiplier > first_multiplier
-        
+
         # Verify multiplier is capped
         for _ in range(5):
             await rate_limiter.handle_response(mock_429_response)
@@ -109,7 +109,7 @@ class TestRateLimiter:
             rate_limiter.queue_request(mock_api_call),
             rate_limiter.queue_request(mock_api_call)
         )
-        
+
         assert len(results) == 3
         for result in results:
             assert result.status_code == 200
@@ -148,7 +148,7 @@ class TestRateLimiter:
         """Test recovery after rate limit"""
         response_sequence = [mock_429_response, mock_200_response]
         call_count = 0
-        
+
         async def mock_api_call(*args, **kwargs):
             nonlocal call_count
             response = response_sequence[min(call_count, len(response_sequence) - 1)]

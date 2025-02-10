@@ -199,72 +199,113 @@ class MarketAnalyzer:
         self,
         markets: List[Market],
         min_profit_margin: float = 0.1,
-        max_distance: int = 100
+        max_distance: int = 100,
+        max_units: int = None
     ) -> List[TradeOpportunity]:
-        """Identify profitable trade opportunities between markets"""
+        """Identify profitable trade opportunities between markets
+        
+        Args:
+            markets: List of markets to analyze
+            min_profit_margin: Minimum acceptable profit margin
+            max_distance: Maximum travel distance to consider
+            max_units: Maximum units that can be transported (e.g. ship cargo capacity)
+            
+        Returns:
+            List[TradeOpportunity]: Sorted list of trade opportunities
+        """
         opportunities = []
 
         for source_market in markets:
             if not source_market.trade_goods:
+                print("Market {} has no trade goods".format(source_market.symbol))
                 continue
 
+            print(f"\nChecking trades at {source_market.symbol}:")
+            for good in source_market.trade_goods:
+                print(f"- {good.symbol}: {good.type_}")
+                print(f"  Buy: {good.purchase_price} | Sell: {good.sell_price}")
+                print(f"  Supply: {good.supply} | Volume: {good.trade_volume}")
+
+            # Consider both exports and exchange goods as potential purchases
             for trade_good in source_market.trade_goods:
-                if trade_good.type_ != MarketTradeGoodType.EXPORT:
-                    continue
+                if trade_good.type_ in [
+                    MarketTradeGoodType.EXPORT,
+                    MarketTradeGoodType.EXCHANGE
+                ]:
+                    # Look for profitable sales at other markets
+                    for target_market in markets:
+                        if target_market.symbol == source_market.symbol:
+                            continue
 
-                # Look for profitable sales at other markets
-                for target_market in markets:
-                    if target_market.symbol == source_market.symbol:
-                        continue
+                        # Find matching import/exchange good
+                        target_good = next(
+                            (g for g in (target_market.trade_goods or [])
+                             if g.symbol == trade_good.symbol and
+                             g.type_ in (
+                                 MarketTradeGoodType.IMPORT,
+                                 MarketTradeGoodType.EXCHANGE
+                             ) and
+                             g.sell_price > trade_good.purchase_price),  # Must make profit
+                            None
+                        )
 
-                    # Find matching import/exchange good
-                    target_good = next(
-                        (g for g in (target_market.trade_goods or [])
-                         if g.symbol == trade_good.symbol and
-                         g.type_ in (
-                             MarketTradeGoodType.IMPORT,
-                             MarketTradeGoodType.EXCHANGE
-                         )),
-                        None
-                    )
+                        if not target_good:
+                            continue
 
-                    if not target_good:
-                        continue
-
-                    # Calculate basic profitability
-                    profit_margin = (
-                        (target_good.sell_price - trade_good.purchase_price) /
-                        trade_good.purchase_price
-                    )
-
-                    if profit_margin < min_profit_margin:
-                        continue
-
-                    # TODO: Calculate actual distance between markets
-                    distance = 50  # Placeholder
-
-                    if distance > max_distance:
-                        continue
-
-                    opportunity = TradeOpportunity(
-                        trade_symbol=trade_good.symbol,
-                        source_market=source_market.symbol,
-                        target_market=target_market.symbol,
-                        purchase_price=trade_good.purchase_price,
-                        sell_price=target_good.sell_price,
-                        trade_volume=min(
+                        # Calculate profit margin and check if worth trading
+                        purchase_price = trade_good.purchase_price
+                        sell_price = target_good.sell_price
+                        profit = sell_price - purchase_price
+                        
+                        if purchase_price == 0:
+                            continue  # Avoid division by zero
+                            
+                        profit_margin = profit / purchase_price
+                        
+                        if profit_margin < min_profit_margin:
+                            continue
+                            
+                        # Calculate valid trade volume
+                        volume = min(
                             trade_good.trade_volume,
                             target_good.trade_volume
-                        ),
-                        source_supply=trade_good.supply,
-                        target_demand=target_good.supply,
-                        distance=distance
-                    )
+                        )
+                        if max_units is not None:
+                            volume = min(volume, max_units)
+                            
+                        if volume <= 0:
+                            continue
 
-                    opportunities.append(opportunity)
+                        distance = 50  # Placeholder distance
+                        if distance > max_distance:
+                            continue
+
+                        opportunity = TradeOpportunity(
+                            trade_symbol=trade_good.symbol,
+                            source_market=source_market.symbol,
+                            target_market=target_market.symbol,
+                            purchase_price=purchase_price,
+                            sell_price=sell_price,
+                            trade_volume=volume,
+                            source_supply=trade_good.supply,
+                            target_demand=target_good.supply,
+                            distance=distance
+                        )
+
+                        print(f"\nFound potential trade:")
+                        print(f"- Good: {opportunity.trade_symbol}")
+                        print(f"- Route: {opportunity.source_market} -> {opportunity.target_market}")
+                        print(f"- Buy: {purchase_price} | Sell: {sell_price}")
+                        print(f"- Profit/unit: {opportunity.profit_per_unit}")
+                        print(f"- Volume: {volume}")
+                        print(f"- Total potential profit: {opportunity.total_potential_profit}")
+                        print(f"- Score: {opportunity.score()}")
+
+                        opportunities.append(opportunity)
 
         # Sort by opportunity score
         opportunities.sort(key=lambda x: x.score(), reverse=True)
+        print(f"\nFound {len(opportunities)} total trade opportunities")
         return opportunities
 
     def get_market_insights(self, market_symbol: str) -> Dict[str, any]:

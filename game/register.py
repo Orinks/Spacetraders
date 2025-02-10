@@ -56,21 +56,21 @@ class RegistrationManager:
     ) -> bool:
         """
         Register a new agent with SpaceTraders API.
-        
+
         Args:
             symbol: Desired agent symbol (callsign)
             faction: Faction to join (default: COSMIC)
             email: Optional email for reserved callsigns
-            
+
         Returns:
-            bool: True if registration was successful, False if token already 
+            bool: True if registration was successful, False if token already
             exists
         """
         # Check for existing token first
         existing_token = self.load_existing_token()
         if existing_token:
             return False
-            
+
         # Create registration body with proper email handling
         email_param: TypingUnion[Unset, str] = (
             UNSET if email is None else email
@@ -80,13 +80,13 @@ class RegistrationManager:
             faction=faction,
             email=email_param
         )
-        
+
         # Register new agent
         response = register.sync_detailed(
             client=self.client,
             body=register_body
         )
-        
+
         try:
             error_content = response.content.decode('utf-8')
         except UnicodeDecodeError:
@@ -94,7 +94,7 @@ class RegistrationManager:
 
         if response.status_code != 201:
             raise Exception(f"Failed to register agent: {error_content}")
-            
+
         # Parse response and extract token
         if not response.parsed:
             raise Exception("Invalid response format: no parsed data")
@@ -102,14 +102,14 @@ class RegistrationManager:
         data = response.parsed.data
         if not data:
             raise Exception("Invalid response format: no data field")
-            
+
         token = data.token
         if not token:
             raise Exception("Invalid response format: no token field")
-        
+
         # Save token for future use
         self.save_token(token)
-        
+
         return True
 
     def generate_agent_symbol(self) -> str:
@@ -117,7 +117,7 @@ class RegistrationManager:
         Generate a valid agent symbol for SpaceTraders API.
         Creates a random space-themed prefix followed by random characters.
         Must be 3-14 characters, using only A-Z, 0-9, and _ (underscore).
-        
+
         Returns:
             A valid agent symbol string
         """
@@ -126,18 +126,18 @@ class RegistrationManager:
             "NOVA", "STAR", "VOID", "NEBULA", "SOLAR", "LUNAR", "COSMIC",
             "ASTRO", "ORBIT", "COMET", "METEOR", "SPACE", "GALAXY", "QUASAR"
         ]
-        
+
         # Pick a random prefix
         prefix = random.choice(prefix_options)
-        
+
         # Calculate remaining length for random chars
         remaining_length = 14 - len(prefix) - 1
-        
+
         # Generate random string of valid characters
         valid_chars = string.ascii_uppercase + string.digits
         random_part = ''.join(
             random.choices(valid_chars, k=min(4, remaining_length))
         )
-        
+
         # Combine with underscore
         return f"{prefix}_{random_part}"

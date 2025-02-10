@@ -13,8 +13,10 @@ from space_traders_api_client.api.systems import (
     get_system_waypoints,
     get_systems,
     get_market,
+    get_waypoint,
 )
 from space_traders_api_client.models.market import Market
+from space_traders_api_client.models.ship import Ship
 from space_traders_api_client.models.waypoint_trait_symbol import (
     WaypointTraitSymbol,
 )
@@ -48,11 +50,66 @@ class TradeManager:
         self.market_analyzer = market_analyzer
         self.rate_limiter = RateLimiter()
 
-    async def update_market_data(self, waypoint_symbol: str) -> None:
-        """Update market data for analysis"""
+    async def get_market_details(self, waypoint_symbol: str) -> Optional[Market]:
+        """Get details for a specific market
+        
+        Args:
+            waypoint_symbol: Symbol of waypoint to get market data for
+            
+        Returns:
+            Optional[Market]: Market data if available
+        """
+        try:
+            system_symbol = "-".join(waypoint_symbol.split("-")[:2])
+            response = await self.rate_limiter.execute_with_retry(
+                get_market.asyncio_detailed,
+                task_name="get_market_details",
+                system_symbol=system_symbol,
+                waypoint_symbol=waypoint_symbol,
+                client=self.client
+            )
+            if response.status_code == 200 and response.parsed:
+                return response.parsed.data
+            return None
+        except Exception as e:
+            logger.error(f"Error getting market details: {e}")
+            return None
+
+    async def update_market_data(self, waypoint_symbol: str) -> bool:
+        """Update market data for analysis
+        
+        Args:
+            waypoint_symbol: Symbol of waypoint to update
+            
+        Returns:
+            bool: True if market was updated successfully
+        """
         try:
             # Extract system symbol from waypoint symbol (format: SYSTEM-X-X)
             system_symbol = "-".join(waypoint_symbol.split("-")[:2])
+            
+            # Get waypoint info first to check if it has a marketplace
+            waypoint_response = await self.rate_limiter.execute_with_retry(
+                get_waypoint.asyncio_detailed,
+                task_name="get_waypoint",
+                system_symbol=system_symbol,
+                waypoint_symbol=waypoint_symbol,
+                client=self.client
+            )
+            
+            if waypoint_response.status_code != 200 or not waypoint_response.parsed:
+                logger.error(f"Failed to get waypoint info for {waypoint_symbol}")
+                return False
+                
+            # Check if waypoint has marketplace trait
+            if not any(
+                trait.symbol == WaypointTraitSymbol.MARKETPLACE 
+                for trait in waypoint_response.parsed.data.traits
+            ):
+                logger.info(f"Waypoint {waypoint_symbol} has no marketplace")
+                return False
+            
+            # Has marketplace, get market data
             response = await self.rate_limiter.execute_with_retry(
                 get_market.asyncio_detailed,
                 task_name="update_market_data",
@@ -62,69 +119,80 @@ class TradeManager:
             )
             if response.status_code == 200 and response.parsed:
                 self.market_analyzer.update_market_data(response.parsed.data)
+                return True
+            return False
         except Exception as e:
             logger.error(f"Error updating market data: {e}")
+            return False
 
     async def find_best_trade_route(
         self,
-        ship_symbol: str,
+        ship: Ship,
         min_profit: int = 100
     ) -> Optional[TradeOpportunity]:
-        """Find the most profitable trade route for a ship"""
+        """Find the most profitable trade route for a ship
+        
+        Args:
+            ship: The ship to find a trade route for
+            min_profit: Minimum profit per unit required
+            
+        Returns:
+            Optional[TradeOpportunity]: Best trade opportunity found
+        """
         try:
-            # Get nearby systems
-            systems_response = await self.rate_limiter.execute_with_retry(
-                get_systems.asyncio_detailed,
-                task_name="get_systems",
-                client=self.client,
-                limit=5
-            )
-            if (
-                systems_response.status_code != 200
-                or not systems_response.parsed
-            ):
-                return None
-
-            systems = systems_response.parsed.data
-
-            # Get market data for each system
+            # First check if the current market has data
+            current_market_response = await self.get_market_details(ship.nav.waypoint_symbol)
+            
             markets: List[Market] = []
-            for system in systems:
-                waypoints = await self.rate_limiter.execute_with_retry(
-                    get_system_waypoints.asyncio_detailed,
-                    task_name="get_system_waypoints",
-                    system_symbol=system.symbol,
-                    client=self.client
-                )
-                if waypoints.status_code != 200 or not waypoints.parsed:
-                    continue
-
-                for waypoint in waypoints.parsed.data:
-                    if WaypointTraitSymbol.MARKETPLACE in [
-                        t.symbol for t in waypoint.traits
-                    ]:
-                        # Extract system symbol from waypoint symbol
-                        system_symbol = "-".join(
-                            waypoint.symbol.split("-")[:2]
-                        )
-                        market_response = await self.rate_limiter.execute_with_retry(
-                            get_market.asyncio_detailed,
-                            task_name="get_market",
-                            system_symbol=system_symbol,
-                            waypoint_symbol=waypoint.symbol,
-                            client=self.client
-                        )
-                        if (
-                            market_response.status_code == 200
-                            and market_response.parsed
-                        ):
-                            markets.append(market_response.parsed.data)
-
+            if current_market_response is not None:
+                markets.append(current_market_response)
+                logger.info(f"Found market at current location {ship.nav.waypoint_symbol}")
+                
+                if current_market_response.trade_goods:
+                    logger.info(f"Current market has {len(current_market_response.trade_goods)} goods:")
+                    for good in current_market_response.trade_goods:
+                        logger.info(f"- {good.symbol}: {good.type_} {good.supply}")
+               
+            # Get all waypoints in current system
+            system_symbol = "-".join(ship.nav.waypoint_symbol.split("-")[:2])
+            waypoints_response = await self.rate_limiter.execute_with_retry(
+                get_system_waypoints.asyncio_detailed,
+                task_name="get_system_waypoints",
+                system_symbol=system_symbol,
+                client=self.client
+            )
+            
+            if waypoints_response.status_code != 200 or not waypoints_response.parsed:
+                logger.error(f"Failed to get waypoints for system {system_symbol}")
+                return None
+                
+            # Check each waypoint for a marketplace
+            for waypoint in waypoints_response.parsed.data:
+                if waypoint.symbol == ship.nav.waypoint_symbol:
+                    continue  # Skip current waypoint, already checked
+                    
+                if WaypointTraitSymbol.MARKETPLACE in [t.symbol for t in waypoint.traits]:
+                    market_response = await self.get_market_details(waypoint.symbol)
+                    if market_response is not None:
+                        markets.append(market_response)
+                        logger.info(f"Found market at {waypoint.symbol}")
+                        
+                        if market_response.trade_goods:
+                            logger.info(f"Market has {len(market_response.trade_goods)} goods:")
+                            for good in market_response.trade_goods:
+                                logger.info(f"- {good.symbol}: {good.type_} {good.supply}")
+                        
+            if len(markets) > 0:
+                logger.info(f"Found {len(markets)} markets in system {system_symbol}")
+            else:
+                logger.warning(f"No valid markets found in system {system_symbol}")
+                        
             # Find trade opportunities
             opportunities = self.market_analyzer.get_trade_opportunities(
                 markets=markets,
-                min_profit_margin=0.2,
-                max_distance=100
+                min_profit_margin=0.1,  # Lower margin to find more opportunities
+                max_distance=100,
+                max_units=ship.cargo.capacity  # Consider ship's cargo capacity
             )
 
             if not opportunities:

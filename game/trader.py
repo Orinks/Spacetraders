@@ -184,9 +184,21 @@ class SpaceTrader:
             ))
 
             # Update market data
-            await self.trade_manager.update_market_data(
+            market_updated = await self.trade_manager.update_market_data(
                 ship.nav.waypoint_symbol
             )
+            
+            if not market_updated:
+                return  # Skip if no market at this waypoint
+
+            print("\nExamining market at", ship.nav.waypoint_symbol)
+            market_data = await self.trade_manager.get_market_details(ship.nav.waypoint_symbol)
+            if market_data and market_data.trade_goods:
+                print("\nAvailable Goods:")
+                for good in market_data.trade_goods:
+                    print(f"- {good.symbol}: {good.type_}")
+                    print(f"  Buy: {good.purchase_price} | Sell: {good.sell_price}")
+                    print(f"  Supply: {good.supply} | Volume: {good.trade_volume}")
 
             # Get market insights
             insights = self.market_analyzer.get_market_insights(
@@ -201,9 +213,7 @@ class SpaceTrader:
 
             # Find best trade route if cargo space available
             if ship.cargo.units < ship.cargo.capacity:
-                best_route = await self.trade_manager.find_best_trade_route(
-                    ship.symbol
-                )
+                best_route = await self.trade_manager.find_best_trade_route(ship)
                 if best_route:
                     print(
                         f"Found route: {best_route.source_market} -> "

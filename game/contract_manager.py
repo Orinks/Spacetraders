@@ -15,6 +15,7 @@ from space_traders_api_client.models.waypoint import Waypoint
 from space_traders_api_client.models.contract_deliver_good import ContractDeliverGood
 from space_traders_api_client.models.ship_nav_flight_mode import ShipNavFlightMode
 
+from space_traders_api_client.api.agents import get_my_agent
 from space_traders_api_client.api.contracts import (
     accept_contract,
     deliver_contract,
@@ -416,16 +417,35 @@ class ContractManager:
                     mining_ships, hauler_ships = fleet_manager.get_ships_by_type()
 
                     if not mining_ships:
-                        logger.info("No mining ships available, attempting to purchase one...")
-                        current_system = next(iter(ships.values())).nav.system_symbol
-                        purchase_response = await self.shipyard_manager.purchase_mining_ship(
-                            system_symbol=current_system
+                        logger.info("No mining ships available, checking credits for purchase...")
+                        # Get current credits
+                        agent_response = await self.rate_limiter.execute_with_retry(
+                            get_my_agent.asyncio_detailed,
+                            task_name="get_agent_credits",
+                            client=self.client
                         )
-                        if not purchase_response:
-                            logger.error("Failed to acquire mining ship")
+                        
+                        if agent_response.status_code != 200 or not agent_response.parsed:
+                            logger.error("Failed to get agent information")
                             return
+                            
+                        credits = agent_response.parsed.data.credits_
+                        
+                        # Try to purchase if we have enough credits
+                        if credits >= 40000:  # Ensure we have enough for ship + operating costs
+                            current_system = next(iter(ships.values())).nav.system_symbol
+                            purchase_response = await self.shipyard_manager.purchase_mining_ship(
+                                system_symbol=current_system
+                            )
+                            if not purchase_response:
+                                logger.error("Failed to acquire mining ship")
+                                return
+                            else:
+                                logger.info("Mining ship purchased, restart processing with updated fleet")
+                                return
                         else:
-                            logger.info("Mining ship purchased, restart processing with updated fleet")
+                            logger.info(f"Insufficient credits ({credits}) for mining ship, need to trade first")
+                            # TODO: Initiate trading sequence with existing ships
                             return
 
                     if not hauler_ships:

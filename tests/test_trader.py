@@ -32,13 +32,13 @@ from tests.factories import (
 
 
 @pytest.fixture
-def mock_agent() -> Agent:
+async def mock_agent() -> Agent:
     """Create a mock agent for testing"""
     return AgentFactory(symbol="TEST_AGENT")
 
 
 @pytest.fixture
-def mock_ship() -> Ship:
+async def mock_ship() -> Ship:
     """Create a mock ship for testing"""
     now = datetime.now(timezone.utc)
     waypoint = ShipNavRouteWaypoint(
@@ -98,7 +98,7 @@ def mock_ship() -> Ship:
 
 
 @pytest.fixture
-def mock_system() -> System:
+async def mock_system() -> System:
     """Create a mock system for testing"""
     return SystemFactory(
         symbol="test-system-XXX",
@@ -107,9 +107,21 @@ def mock_system() -> System:
 
 
 @pytest.fixture
-def trader():
+async def trader():
     """Create a SpaceTrader instance for testing"""
-    return SpaceTrader("test_token")
+    trader_instance = SpaceTrader("test_token")
+    yield trader_instance
+    # Cleanup
+    if hasattr(trader_instance, 'rate_limiter'):
+        await trader_instance.rate_limiter.cleanup()
+    if hasattr(trader_instance.agent_manager, 'rate_limiter'):
+        await trader_instance.agent_manager.rate_limiter.cleanup()
+    if hasattr(trader_instance.fleet_manager, 'rate_limiter'):
+        await trader_instance.fleet_manager.rate_limiter.cleanup()
+    if hasattr(trader_instance.contract_manager, 'rate_limiter'):
+        await trader_instance.contract_manager.rate_limiter.cleanup()
+    if hasattr(trader_instance.trade_manager, 'rate_limiter'):
+        await trader_instance.trade_manager.rate_limiter.cleanup()
 
 
 @pytest.mark.asyncio
@@ -210,10 +222,10 @@ async def test_execute_trade_route_navigation_failure(
     with patch.object(
         trader.fleet_manager,
         'navigate_to_waypoint',
-        return_value=False  # noqa: B001
+        return_value=False
     ):
         result = await trader._execute_trade_route(mock_ship, route)
-        assert result is False  # noqa: B001
+        assert result is False
 
 
 @pytest.mark.asyncio

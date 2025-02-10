@@ -14,7 +14,7 @@ from game.mining import ExtractionResult, MiningTarget, SurveyManager
 
 
 @pytest.fixture
-def mock_survey():
+async def mock_survey():
     """Create a mock survey"""
     survey = Survey(
         signature="test-survey-1",
@@ -39,7 +39,7 @@ def mock_survey():
 
 
 @pytest.fixture
-def mock_expired_survey():
+async def mock_expired_survey():
     """Create a mock expired survey"""
     return Survey(
         signature="test-survey-2",
@@ -51,7 +51,7 @@ def mock_expired_survey():
 
 
 @pytest.fixture
-def mock_extraction():
+async def mock_extraction():
     """Create a mock extraction result"""
     # Create a proper mock extraction with all required attributes
     extraction = Extraction(
@@ -67,12 +67,16 @@ def mock_extraction():
 
 
 @pytest.fixture
-def survey_manager():
+async def survey_manager():
     """Create a SurveyManager instance"""
-    return SurveyManager(client=None)
+    manager = SurveyManager(client=None)
+    yield manager
+    # Cleanup
+    await manager.rate_limiter.cleanup()
 
 
-def test_extraction_result_creation(mock_survey, mock_extraction):
+@pytest.mark.asyncio
+async def test_extraction_result_creation(mock_survey, mock_extraction):
     """Test ExtractionResult initialization"""
     result = ExtractionResult(
         survey_signature=mock_survey.signature,
@@ -84,7 +88,8 @@ def test_extraction_result_creation(mock_survey, mock_extraction):
     assert isinstance(result.timestamp, datetime)
 
 
-def test_mining_target_creation(mock_survey):
+@pytest.mark.asyncio
+async def test_mining_target_creation(mock_survey):
     """Test MiningTarget initialization"""
     target = MiningTarget(
         waypoint="TEST-WAYPOINT",
@@ -99,14 +104,16 @@ def test_mining_target_creation(mock_survey):
     assert target.survey == mock_survey
 
 
-def test_survey_manager_add_survey(survey_manager, mock_survey):
+@pytest.mark.asyncio
+async def test_survey_manager_add_survey(survey_manager, mock_survey):
     """Test adding surveys to manager"""
     survey_manager.add_survey(mock_survey)
     assert mock_survey.signature in survey_manager.active_surveys
     assert len(survey_manager.active_surveys) == 1
 
 
-def test_survey_manager_expired_survey(
+@pytest.mark.asyncio
+async def test_survey_manager_expired_survey(
     survey_manager,
     mock_survey,
     mock_expired_survey
@@ -120,7 +127,8 @@ def test_survey_manager_expired_survey(
     assert mock_expired_survey.signature not in survey_manager.active_surveys
 
 
-def test_survey_manager_get_surveys_for_waypoint(survey_manager, mock_survey):
+@pytest.mark.asyncio
+async def test_survey_manager_get_surveys_for_waypoint(survey_manager, mock_survey):
     """Test filtering surveys by waypoint"""
     survey_manager.add_survey(mock_survey)
 
@@ -134,7 +142,8 @@ def test_survey_manager_get_surveys_for_waypoint(survey_manager, mock_survey):
     assert len(other_surveys) == 0
 
 
-def test_survey_manager_get_best_survey(survey_manager, mock_survey):
+@pytest.mark.asyncio
+async def test_survey_manager_get_best_survey(survey_manager, mock_survey):
     """Test finding best survey for resource"""
     survey_manager.add_survey(mock_survey)
 
@@ -145,7 +154,8 @@ def test_survey_manager_get_best_survey(survey_manager, mock_survey):
     assert no_survey is None
 
 
-def test_survey_manager_track_extraction(
+@pytest.mark.asyncio
+async def test_survey_manager_track_extraction(
     survey_manager,
     mock_survey,
     mock_extraction
@@ -159,7 +169,8 @@ def test_survey_manager_track_extraction(
     assert result.extraction == mock_extraction
 
 
-def test_survey_manager_extraction_stats(
+@pytest.mark.asyncio
+async def test_survey_manager_extraction_stats(
     survey_manager,
     mock_survey,
     mock_extraction

@@ -11,7 +11,7 @@ import asyncio
 import json
 import time
 from typing import Optional, Dict, Any, Callable, Awaitable, TypeVar
-from datetime import datetime, timezone
+from datetime import datetime
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -46,8 +46,13 @@ class RateLimiter:
 
     async def start_queue_processor(self):
         """Start the queue processor if not already running"""
-        if self._queue_processor_task is None:
-            self._queue_processor_task = asyncio.create_task(self._process_queue())
+        if self._queue_processor_task is None or self._queue_processor_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+                if not loop.is_closed():
+                    self._queue_processor_task = loop.create_task(self._process_queue())
+            except RuntimeError:
+                logger.warning("No running event loop available for queue processor")
 
     async def _process_queue(self):
         """Process queued requests with rate limiting"""
@@ -60,6 +65,8 @@ class RateLimiter:
                     )
                 except asyncio.TimeoutError:
                     continue
+                except asyncio.CancelledError:
+                    break
 
                 # Calculate time to wait
                 now = time.time()
@@ -67,7 +74,10 @@ class RateLimiter:
                 wait_time = max(0, self.min_request_interval - time_since_last)
 
                 if wait_time > 0:
-                    await asyncio.sleep(wait_time)
+                    try:
+                        await asyncio.sleep(wait_time)
+                    except asyncio.CancelledError:
+                        break
 
                 # Execute request
                 try:
@@ -81,25 +91,38 @@ class RateLimiter:
                     self._request_queue.task_done()
                     self.last_request_time = time.time()
 
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.error(f"Error in queue processor: {e}")
-                await asyncio.sleep(1)  # Avoid tight loop on error
+                try:
+                    await asyncio.sleep(1)  # Avoid tight loop on error
+                except asyncio.CancelledError:
+                    break
 
         logger.info("Queue processor stopping")
 
     async def queue_request(self, callback: Callable[..., Awaitable[T]], *args, **kwargs) -> T:
         """Queue an API request with rate limiting"""
+        if not self._running:
+            raise RuntimeError("Rate limiter is not running")
+
         # Create future for result
         future = asyncio.Future()
 
-        # Start queue processor if needed
-        await self.start_queue_processor()
+        try:
+            # Start queue processor if needed
+            await self.start_queue_processor()
 
-        # Add request to queue
-        await self._request_queue.put((callback, args, kwargs, future))
+            # Add request to queue
+            await self._request_queue.put((callback, args, kwargs, future))
 
-        # Wait for result
-        return await future
+            # Wait for result
+            return await future
+        except asyncio.CancelledError:
+            if not future.done():
+                future.cancel()
+            raise
 
     async def execute_with_retry(
         self,
@@ -109,21 +132,7 @@ class RateLimiter:
         *args,
         **kwargs
     ) -> T:
-        """Execute an API request with retries and rate limiting
-
-        Args:
-            callback: Async function to call
-            task_name: Name of task for logging
-            max_retries: Maximum number of retry attempts
-            *args: Positional arguments for callback
-            **kwargs: Keyword arguments for callback
-
-        Returns:
-            Result from callback
-
-        Raises:
-            Exception: If all retries fail
-        """
+        """Execute an API request with retries and rate limiting"""
         attempt = 0
         last_error = None
         last_response = None
@@ -137,7 +146,10 @@ class RateLimiter:
                 # Check for rate limiting
                 retry_after = await self.handle_response(response)
                 if retry_after:
-                    await asyncio.sleep(retry_after)
+                    try:
+                        await asyncio.sleep(retry_after)
+                    except asyncio.CancelledError:
+                        raise
                     attempt += 1
                     continue
 
@@ -158,19 +170,27 @@ class RateLimiter:
 
                     # Only retry on server errors and rate limiting
                     if (500 <= response.status_code < 600) or response.status_code == 429:
-                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                        try:
+                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                        except asyncio.CancelledError:
+                            raise
                         attempt += 1
                         continue
                     else:
                         # For client errors (4xx except 429), don't retry
                         return response
 
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 last_error = e
                 logger.error(
                     f"{task_name} error (attempt {attempt + 1}/{max_retries}): {e}"
                 )
-                await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                try:
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                except asyncio.CancelledError:
+                    raise
                 attempt += 1
 
         # If we get here, all retries failed
@@ -182,14 +202,7 @@ class RateLimiter:
             raise Exception(f"{task_name} failed after {max_retries} attempts with no response")
 
     async def handle_response(self, response: Any) -> Optional[float]:
-        """Handle API response and extract rate limit info
-
-        Args:
-            response: API response object
-
-        Returns:
-            Delay in seconds if rate limited, None otherwise
-        """
+        """Handle API response and extract rate limit info"""
         if response.status_code == 429:
             try:
                 error_data = json.loads(response.content.decode())
@@ -230,16 +243,31 @@ class RateLimiter:
     async def cleanup(self):
         """Clean up the rate limiter and stop queue processor"""
         self._running = False
+        
         if self._queue_processor_task is not None:
+            # Cancel the task
+            self._queue_processor_task.cancel()
+            
             try:
-                # Wait for task to finish with timeout
-                await asyncio.wait_for(self._queue_processor_task, timeout=2.0)
-            except asyncio.TimeoutError:
-                if not self._queue_processor_task.done():
-                    self._queue_processor_task.cancel()
-                    try:
-                        await self._queue_processor_task
-                    except asyncio.CancelledError:
-                        pass
+                # Wait for task to finish
+                await self._queue_processor_task
+            except (asyncio.CancelledError, Exception) as e:
+                logger.debug(f"Queue processor task cancelled: {e}")
             finally:
                 self._queue_processor_task = None
+
+        # Clear the queue
+        while not self._request_queue.empty():
+            try:
+                callback, args, kwargs, future = self._request_queue.get_nowait()
+                if not future.done():
+                    future.cancel()
+            except asyncio.QueueEmpty:
+                break
+
+    def __del__(self):
+        """Ensure cleanup runs when the object is destroyed"""
+        if self._queue_processor_task is not None and not self._queue_processor_task.done():
+            loop = asyncio.get_event_loop_policy().get_event_loop()
+            if loop.is_running():
+                loop.create_task(self.cleanup())

@@ -1,7 +1,6 @@
 """Tests for contract manager"""
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
-from datetime import datetime, timezone
 
 from space_traders_api_client.models.ship_nav_status import ShipNavStatus
 from space_traders_api_client.models.ship_nav_flight_mode import ShipNavFlightMode
@@ -11,14 +10,12 @@ from .factories import (
     ContractFactory,
     ShipFactory,
     ContractDeliverGood,
-    MetaFactory,
     ShipMountFactory,
     WaypointFactory,
     WaypointTraitFactory,
     SystemFactory,
     ShipNavFactory
 )
-from space_traders_api_client.models.meta import Meta
 from game.contract_manager import ContractManager
 
 

@@ -30,17 +30,17 @@ class RateLimiter:
         self.rate_per_second = 2
         self.min_request_interval = 1 / self.rate_per_second
         self.remaining_requests = self.burst_limit
-        
+
         # Timing and State
         self.last_request_time = 0
         self.reset_time: Optional[datetime] = None
         self.backoff_multiplier = 1.0
-        
+
         # Queue Management
         self._request_queue = asyncio.Queue()
         self._queue_processor_task = None
         self._running = True
-        
+
         # Rate Limit Response Data
         self.rate_limit_data: Dict[str, Any] = {}
 
@@ -156,29 +156,27 @@ class RateLimiter:
                 # Check response status
                 if response.status_code in [200, 201]:
                     return response
-                else:
-                    logger.warning(
-                        f"{task_name} failed (attempt {attempt + 1}/{max_retries}): "
-                        f"Status {response.status_code}"
-                    )
-                    if response.content:
-                        try:
-                            error_content = response.content.decode()
-                            logger.warning(f"Response: {error_content}")
-                        except Exception:
-                            logger.warning("Could not decode error content")
+                logger.warning(
+                    f"{task_name} failed (attempt {attempt + 1}/{max_retries}): "
+                    f"Status {response.status_code}"
+                )
+                if response.content:
+                    try:
+                        error_content = response.content.decode()
+                        logger.warning(f"Response: {error_content}")
+                    except Exception:
+                        logger.warning("Could not decode error content")
 
-                    # Only retry on server errors and rate limiting
-                    if (500 <= response.status_code < 600) or response.status_code == 429:
-                        try:
-                            await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                        except asyncio.CancelledError:
-                            raise
-                        attempt += 1
-                        continue
-                    else:
-                        # For client errors (4xx except 429), don't retry
-                        return response
+                # Only retry on server errors and rate limiting
+                if (500 <= response.status_code < 600) or response.status_code == 429:
+                    try:
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    except asyncio.CancelledError:
+                        raise
+                    attempt += 1
+                    continue
+                # For client errors (4xx except 429), don't retry
+                return response
 
             except asyncio.CancelledError:
                 raise
@@ -196,10 +194,9 @@ class RateLimiter:
         # If we get here, all retries failed
         if last_error:
             raise Exception(f"{task_name} failed after {max_retries} attempts") from last_error
-        elif last_response:
+        if last_response:
             return last_response
-        else:
-            raise Exception(f"{task_name} failed after {max_retries} attempts with no response")
+        raise Exception(f"{task_name} failed after {max_retries} attempts with no response")
 
     async def handle_response(self, response: Any) -> Optional[float]:
         """Handle API response and extract rate limit info"""
@@ -235,19 +232,19 @@ class RateLimiter:
             except Exception as e:
                 logger.error(f"Error parsing rate limit response: {e}")
                 return 1.0  # Default 1 second delay
-        else:
-            # Successful request, reset backoff
-            self.backoff_multiplier = 1.0
-            return None
+
+        # Successful request, reset backoff
+        self.backoff_multiplier = 1.0
+        return None
 
     async def cleanup(self):
         """Clean up the rate limiter and stop queue processor"""
         self._running = False
-        
+
         if self._queue_processor_task is not None:
             # Cancel the task
             self._queue_processor_task.cancel()
-            
+
             try:
                 # Wait for task to finish
                 await self._queue_processor_task

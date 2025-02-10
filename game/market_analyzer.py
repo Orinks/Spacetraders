@@ -217,7 +217,7 @@ class MarketAnalyzer:
 
         for source_market in markets:
             if not source_market.trade_goods:
-                print(f"Market {source_market.symbol} has no trade goods")
+                print("Market {} has no trade goods".format(source_market.symbol))
                 continue
 
             print(f"\nChecking trades at {source_market.symbol}:")

@@ -35,10 +35,11 @@ from space_traders_api_client.api.systems import (
     get_systems
 )
 
-from .mining import SurveyManager
+from .mining import MiningManager # Updated import
 from .shipyard import ShipyardManager
 from .rate_limiter import RateLimiter
 from .fleet_manager import FleetManager
+from .system_manager import SystemManager
 
 logger = logging.getLogger(__name__)
 
@@ -171,14 +172,16 @@ class ContractManager:
         self,
         contract: Contract,
         ships: Dict[str, Ship],
-        survey_manager: SurveyManager
+        mining_manager: MiningManager, # Renamed parameter
+        system_manager: SystemManager
     ) -> None:
         """Process a specific contract's requirements
         
         Args:
             contract: The contract to process
             ships: Dictionary of available ships
-            survey_manager: Survey manager for mining operations
+            mining_manager: Mining manager for mining operations
+            system_manager: SystemManager for system/waypoint info
         """
         try:
             # Check if contract is valid

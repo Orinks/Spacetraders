@@ -69,7 +69,11 @@ def mock_ships(mock_mining_ship):
 
 
 @pytest.fixture
-def mock_survey_manager():
+def mock_mining_manager(): # Renamed fixture
+    return MagicMock()
+
+@pytest.fixture
+def mock_system_manager(): # Added fixture for SystemManager
     return MagicMock()
 
 
@@ -273,7 +277,8 @@ async def test_process_contract_fulfilled(
     mock_client,
     mock_contract,
     mock_ships,
-    mock_survey_manager
+    mock_mining_manager, # Updated parameter
+    mock_system_manager # Added parameter
 ):
     """Test processing a fulfilled contract"""
     with patch('game.contract_manager.get_contract.asyncio_detailed', new_callable=AsyncMock) as mock_get:
@@ -286,7 +291,8 @@ async def test_process_contract_fulfilled(
             await contract_manager.process_contract(
                 mock_contract,
                 mock_ships,
-                mock_survey_manager
+                mock_mining_manager, # Updated argument
+                mock_system_manager  # Added argument
             )
 
             assert mock_get.call_count == 1
@@ -303,7 +309,8 @@ async def test_process_contract_not_fulfilled(
     mock_client,
     mock_contract,
     mock_ships,
-    mock_survey_manager
+    mock_mining_manager, # Updated parameter
+    mock_system_manager # Added parameter
 ):
     """Test processing a non-fulfilled contract"""
     with patch('game.contract_manager.get_contract.asyncio_detailed', new_callable=AsyncMock) as mock_get:
@@ -319,7 +326,8 @@ async def test_process_contract_not_fulfilled(
             await contract_manager.process_contract(
                 mock_contract,
                 mock_ships,
-                mock_survey_manager
+                mock_mining_manager, # Updated argument
+                mock_system_manager  # Added argument
             )
 
             assert mock_get.call_count == 1
@@ -336,7 +344,8 @@ async def test_process_contract_purchase_mining_ship(
     mock_client,
     mock_contract,
     mock_ships,
-    mock_survey_manager
+    mock_mining_manager, # Updated parameter
+    mock_system_manager # Added parameter
 ):
     """Test processing a contract that requires purchasing a mining ship"""
     # Create a ship without mining capabilities
@@ -382,7 +391,8 @@ async def test_process_contract_purchase_mining_ship(
                 await contract_manager.process_contract(
                     mock_contract,
                     ships,
-                    mock_survey_manager
+                    mock_mining_manager, # Updated argument
+                    mock_system_manager  # Added argument
                 )
 
                 mock_purchase.assert_called_once_with(
@@ -394,7 +404,8 @@ async def test_process_contract_purchase_mining_ship(
 async def test_process_contract_invalid_format(
     contract_manager,
     mock_ships,
-    mock_survey_manager
+    mock_mining_manager, # Updated parameter
+    mock_system_manager # Added parameter
 ):
     """Test processing a contract with invalid format"""
     invalid_contract = ContractFactory.build()
@@ -403,5 +414,6 @@ async def test_process_contract_invalid_format(
     await contract_manager.process_contract(
         invalid_contract,
         mock_ships,
-        mock_survey_manager
+        mock_mining_manager, # Updated argument
+        mock_system_manager  # Added argument
     )

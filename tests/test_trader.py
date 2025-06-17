@@ -23,7 +23,15 @@ from space_traders_api_client.models.system_type import SystemType
 from space_traders_api_client.models.waypoint_type import WaypointType
 from space_traders_api_client.models.ship_nav_status import ShipNavStatus
 
+# Make sure the game module can be imported
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from game.trader import SpaceTrader
+from game.system_manager import SystemManager # Added
+from game.mining import MiningManager # Added
+
 from tests.factories import (
     AgentFactory,
     ShipFactory,
@@ -107,49 +115,78 @@ def mock_system() -> System:
 
 
 @pytest.fixture
-def trader():
+def mock_system_manager_trader(): # Renamed to avoid conflict with test_system_manager.py if run together
+    return AsyncMock(spec=SystemManager)
+
+@pytest.fixture
+def mock_mining_manager_trader(): # Renamed
+    return AsyncMock(spec=MiningManager)
+
+@pytest.fixture
+def trader(mock_system_manager_trader, mock_mining_manager_trader):
     """Create a SpaceTrader instance for testing"""
-    return SpaceTrader("test_token")
+    with patch('game.trader.AgentManager', AsyncMock()), \
+         patch('game.trader.SystemManager', return_value=mock_system_manager_trader), \
+         patch('game.trader.FleetManager', AsyncMock()), \
+         patch('game.trader.MarketAnalyzer', AsyncMock()), \
+         patch('game.trader.TradeManager', AsyncMock()), \
+         patch('game.trader.ContractManager', AsyncMock()), \
+         patch('game.trader.MiningManager', return_value=mock_mining_manager_trader):
+        t = SpaceTrader("test_token")
+        # Replace instances with mocks if they weren't caught by constructor patch
+        t.system_manager = mock_system_manager_trader
+        t.mining_manager = mock_mining_manager_trader
+        return t
 
 
 @pytest.mark.asyncio
-async def test_initialization(trader, mock_agent, mock_ship, mock_system):
+async def test_initialization(trader, mock_agent): # Removed unused mock_ship, mock_system
     """Test trader initialization process"""
-    with patch.object(
-        trader.agent_manager,
-        'initialize',
-        AsyncMock()
-    ) as mock_init, patch.object(
-        trader.fleet_manager,
-        'update_fleet',
-        AsyncMock()
-    ) as mock_fleet, patch.object(
-        trader.contract_manager,
-        'update_contracts',
-        AsyncMock()
-    ) as mock_contracts:
-        await trader.initialize()
-        
-        # Verify all initialization methods were called
-        mock_init.assert_called_once()
-        mock_fleet.assert_called_once()
-        mock_contracts.assert_called_once()
+    # Mock methods called during trader.initialize()
+    trader.agent_manager.initialize = AsyncMock()
+    trader.agent_manager.agent = mock_agent # Ensure agent is set after initialize
+    trader.fleet_manager.update_fleet = AsyncMock()
+    trader.contract_manager.update_contracts = AsyncMock()
+    # Mock the new scan_systems_and_waypoints called by initialize
+    trader.scan_systems_and_waypoints = AsyncMock()
+
+    await trader.initialize()
+
+    # Verify all initialization methods were called
+    trader.agent_manager.initialize.assert_called_once()
+    trader.fleet_manager.update_fleet.assert_called_once()
+    trader.contract_manager.update_contracts.assert_called_once()
+    trader.scan_systems_and_waypoints.assert_called_once_with(initial_scan=True)
 
 
 @pytest.mark.asyncio
-async def test_manage_fleet_error_handling(trader):
+async def test_manage_fleet_error_handling(trader): # trader fixture is now patched
     """Test fleet management error handling"""
-    with patch.object(
-        trader.fleet_manager,
-        'update_fleet',
-        side_effect=Exception("API Error")
-    ):
-        await trader.manage_fleet()
-        # Should handle error gracefully without raising
+    # Mock methods called within manage_fleet to isolate its own logic if any, or to control flow
+    trader.scan_systems_and_waypoints = AsyncMock() # Called at the start of manage_fleet
+    trader.fleet_manager.update_fleet = AsyncMock(side_effect=Exception("API Error"))
+    trader.contract_manager.update_contracts = AsyncMock()
+    # Mock _process_ship to prevent further calls if fleet_manager.update_fleet fails
+    trader._process_ship = AsyncMock()
+
+
+    await trader.manage_fleet()
+
+    # Check that scan_systems_and_waypoints was called
+    trader.scan_systems_and_waypoints.assert_called_once()
+    # Check that update_fleet was called (and raised an error)
+    trader.fleet_manager.update_fleet.assert_called_once()
+    # Ensure contract_manager.update_contracts is not called if update_fleet fails early
+    # Depending on actual error handling, this might change.
+    # If the original code wraps calls in try-except, other mocks might still be called.
+    # For this test, assuming the exception in update_fleet might halt further processing in that block.
+    # Based on current trader.py, error in update_fleet will be caught by the main try-except.
+    # So, contract_manager.update_contracts and ship processing loop would still be attempted.
+    trader.contract_manager.update_contracts.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_process_ship_missing_nav(trader):
+async def test_process_ship_missing_nav(trader): # trader fixture is now patched
     """Test processing ship with missing nav data"""
     ship = ShipFactory(symbol="TEST_SHIP_1")
     # Remove nav attribute
